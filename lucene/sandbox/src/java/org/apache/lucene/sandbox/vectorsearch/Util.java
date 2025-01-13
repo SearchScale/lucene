@@ -25,6 +25,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.apache.commons.lang3.SerializationUtils;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class Util {
 
   public static ByteArrayOutputStream getZipEntryBAOS(

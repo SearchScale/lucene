@@ -24,6 +24,9 @@ import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CuVSKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
   private final int iTopK;

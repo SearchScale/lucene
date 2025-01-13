@@ -21,6 +21,9 @@ import com.nvidia.cuvs.CagraIndex;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CuVSIndex {
   private final CagraIndex cagraIndex;
   private final BruteForceIndex bruteforceIndex;
@@ -40,7 +43,7 @@ public class CuVSIndex {
       int maxDocs,
       BruteForceIndex bruteforceIndex) {
     this.cagraIndex = Objects.requireNonNull(cagraIndex);
-    this.bruteforceIndex = Objects.requireNonNull(bruteforceIndex);
+    this.bruteforceIndex = null; //Objects.requireNonNull(bruteforceIndex);
     this.mapping = Objects.requireNonNull(mapping);
     this.vectors = Objects.requireNonNull(vectors);
     this.fieldName = Objects.requireNonNull(fieldName);

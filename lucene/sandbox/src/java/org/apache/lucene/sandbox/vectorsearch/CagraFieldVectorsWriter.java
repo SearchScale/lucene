@@ -22,6 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.index.FieldInfo;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CagraFieldVectorsWriter extends KnnFieldVectorsWriter<float[]> {
 
   public final String fieldName;

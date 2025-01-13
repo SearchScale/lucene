@@ -20,6 +20,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import org.apache.lucene.store.IndexInput;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class SegmentInputStream extends InputStream {
 
   /** */

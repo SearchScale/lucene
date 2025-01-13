@@ -14,4 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+/**
+ * This package contains a flexible graph-based proximity query, TermAutomatonQuery, and geospatial
+ * queries.
+ */
 package org.apache.lucene.sandbox.vectorsearch;

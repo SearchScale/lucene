@@ -23,6 +23,9 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class PerLeafCuVSKnnCollector implements KnnCollector {
 
   public List<ScoreDoc> scoreDocs;

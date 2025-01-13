@@ -51,6 +51,9 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CuVSVectorsReader extends KnnVectorsReader {
 
   // protected Logger log = Logger.getLogger(getClass().getName());

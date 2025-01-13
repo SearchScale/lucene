@@ -16,12 +16,6 @@
  */
 package org.apache.lucene.sandbox.vectorsearch;
 
-import com.nvidia.cuvs.BruteForceIndex;
-import com.nvidia.cuvs.BruteForceIndexParams;
-import com.nvidia.cuvs.CagraIndex;
-import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
-import com.nvidia.cuvs.CuVSResources;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -29,6 +23,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
@@ -42,6 +37,16 @@ import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.SuppressForbidden;
 
+import com.nvidia.cuvs.BruteForceIndex;
+import com.nvidia.cuvs.BruteForceIndexParams;
+import com.nvidia.cuvs.CagraIndex;
+import com.nvidia.cuvs.CagraIndexParams;
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CuVSResources;
+
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   // protected Logger log = Logger.getLogger(getClass().getName());
@@ -60,6 +65,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   private MergeStrategy mergeStrategy;
   private CuVSResources resources;
 
+  /**
+   * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+   */
   public enum MergeStrategy {
     TRIVIAL_MERGE,
     NON_TRIVIAL_MERGE
@@ -110,6 +118,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @SuppressForbidden(reason = "A temporary java.util.File is needed for Cagra's serialization")
   private byte[] createCagraIndex(float[][] vectors, List<Integer> mapping) throws Throwable {
+    long st = System.currentTimeMillis();
     CagraIndexParams indexParams =
         new CagraIndexParams.Builder(resources)
             .withNumWriterThreads(cuvsWriterThreads)
@@ -117,18 +126,27 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
             .withGraphDegree(graphDegree)
             .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
             .build();
-
+    System.out.println("-------- Time to build CAGRA params: " + (System.currentTimeMillis() - st));
+    st = System.currentTimeMillis();
     // log.info("Indexing started: " + System.currentTimeMillis());
-    cagraIndex =
-        new CagraIndex.Builder(resources).withDataset(vectors).withIndexParams(indexParams).build();
+    cagraIndex = new CagraIndex.Builder(resources)
+        .withDataset(vectors)
+        .withIndexParams(indexParams)
+        .build();
+    System.out.println("-------- Time to build CAGRA index: " + (System.currentTimeMillis() - st));
+
+    
     // log.info("Indexing done: " + System.currentTimeMillis() + "ms, documents: " +
     // vectors.length);
 
+    st = System.currentTimeMillis();
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     File tmpFile =
         File.createTempFile(
             "tmpindex", "cag"); // TODO: Should we make this a file with random names?
     cagraIndex.serialize(baos, tmpFile);
+    System.out.println("-------- Time to serialize CAGRA index: " + (System.currentTimeMillis() - st));
+
     return baos.toByteArray();
   }
 
@@ -201,16 +219,18 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
         // log.info("Starting CAGRA indexing, space remaining: " + new File("/").getFreeSpace());
         // log.info("Starting CAGRA indexing, docs: " + field.vectors.size());
 
+        long st = System.currentTimeMillis();
         float vectors[][] = new float[field.vectors.size()][field.vectors.get(0).length];
         for (int i = 0; i < vectors.length; i++) {
           for (int j = 0; j < vectors[i].length; j++) {
             vectors[i][j] = field.vectors.get(i)[j];
           }
         }
+        System.out.println("%%%%%% Time to translate: " + (System.currentTimeMillis() - st));
 
         cagraIndexBytes = createCagraIndex(vectors, new ArrayList<Integer>(field.vectors.keySet()));
-        bruteForceIndexBytes = createBruteForceIndex(vectors);
-        hnswIndexBytes = createHnswIndex(vectors);
+        //bruteForceIndexBytes = createBruteForceIndex(vectors);
+        //hnswIndexBytes = createHnswIndex(vectors);
       } catch (Throwable e) {
         throw new RuntimeException(e);
       }
@@ -221,18 +241,18 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       // log.info(
       // "time for writing CAGRA index bytes to zip: " + (System.currentTimeMillis() - start));
 
-      // start = System.currentTimeMillis();
-      cuVSFile.addFile(
-          segmentWriteState.segmentInfo.name + "/" + field.fieldName + ".bf", bruteForceIndexBytes);
-      /*log.info(
-      "time for writing BRUTEFORCE index bytes to zip: "
-          + (System.currentTimeMillis() - start));*/
-
-      // start = System.currentTimeMillis();
-      cuVSFile.addFile(
-          segmentWriteState.segmentInfo.name + "/" + field.fieldName + ".hnsw", hnswIndexBytes);
-      // log.info("time for writing HNSW index bytes to zip: " + (System.currentTimeMillis() -
-      // start));
+//      // start = System.currentTimeMillis();
+//      cuVSFile.addFile(
+//          segmentWriteState.segmentInfo.name + "/" + field.fieldName + ".bf", bruteForceIndexBytes);
+//      /*log.info(
+//      "time for writing BRUTEFORCE index bytes to zip: "
+//          + (System.currentTimeMillis() - start));*/
+//
+//      // start = System.currentTimeMillis();
+//      cuVSFile.addFile(
+//          segmentWriteState.segmentInfo.name + "/" + field.fieldName + ".hnsw", hnswIndexBytes);
+//      // log.info("time for writing HNSW index bytes to zip: " + (System.currentTimeMillis() -
+//      // start));
 
       // start = System.currentTimeMillis();
       cuVSFile.addFile(
@@ -365,6 +385,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     }
   }
 
+  /**
+   * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+   */
   public class SegmentOutputStream extends OutputStream {
 
     IndexOutput out;

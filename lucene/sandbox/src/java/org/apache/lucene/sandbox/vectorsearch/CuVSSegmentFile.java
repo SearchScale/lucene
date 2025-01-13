@@ -26,6 +26,9 @@ import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * This is a utility class that provides helper methods for the lucene-cuvs accelerator
+ */
 public class CuVSSegmentFile implements AutoCloseable {
   private final ZipOutputStream zos;
 
@@ -46,7 +49,7 @@ public class CuVSSegmentFile implements AutoCloseable {
         + bytes.length);*/
     ZipEntry indexFileZipEntry = new ZipEntry(name);
     zos.putNextEntry(indexFileZipEntry);
-    zos.write(bytes, 0, bytes.length);
+    zos.write(bytes, 0, bytes != null ? bytes.length : 0);
     zos.closeEntry();
     filesAdded.add(name);
   }

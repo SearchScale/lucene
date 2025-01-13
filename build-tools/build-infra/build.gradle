@@ -22,8 +22,8 @@ plugins {
 }
 
 repositories {
-  mavenLocal()
   mavenCentral()
+  mavenLocal()
 }
 
 group = "org.apache"

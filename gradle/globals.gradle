@@ -22,8 +22,8 @@ allprojects {
 
   // Repositories to fetch dependencies from.
   repositories {
-    mavenLocal()
     mavenCentral()
+    mavenLocal()
   }
 
   // Artifacts will have names after full gradle project path
