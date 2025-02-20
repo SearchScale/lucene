@@ -40,6 +40,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
@@ -138,8 +139,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     }
   }
 
+  public static AtomicLong addFieldTime = new AtomicLong(0L);
   @Override
   public KnnFieldVectorsWriter<?> addField(FieldInfo fieldInfo) throws IOException {
+    long start = System.nanoTime();
     var encoding = fieldInfo.getVectorEncoding();
     if (encoding != FLOAT32) {
       throw new IllegalArgumentException("expected float32, got:" + encoding);
@@ -149,6 +152,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     var flatWriter = (FlatFieldVectorsWriter<float[]>) writer;
     var cuvsFieldWriter = new CuVSFieldWriter(fieldInfo, flatWriter);
     fields.add(cuvsFieldWriter);
+    addFieldTime.addAndGet(System.nanoTime() - start);
     return writer;
   }
 
@@ -192,13 +196,13 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     var index =
         CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(indexParams).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    log.info("Cagra index created: " + elapsedMillis + "ms, documents: " + vectors.length);
+    System.out.println("Cagra index created: <J_LC_WCI_CBI>" + elapsedMillis + "</J_LC_WCI_CBI>ms, documents: " + vectors.length);
 
     Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
     startTime = System.nanoTime();
     index.serialize(os, tmpFile);
     elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    log.info("Cagra index serialization time: " + elapsedMillis);
+    System.out.println("Cagra index serialization time: <J_LC_WCI_SER>" + elapsedMillis + "</J_LC_WCI_SER>");
   }
 
   private void writeBruteForceIndex(OutputStream os, float[][] vectors) throws Throwable {
@@ -237,6 +241,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
+
+    long startTime = System.nanoTime();
+    
     flatVectorsWriter.flush(maxDoc, sortMap);
     for (var field : fields) {
       if (sortMap == null) {
@@ -245,6 +252,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
         writeSortingField(field, sortMap);
       }
     }
+
+    long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+    System.out.println("Cagra FLUSH: <J_LC_FT>" + elapsedMillis + "</J_LC_FT>");
+  
   }
 
   private void writeField(CuVSFieldWriter fieldData) throws IOException {
@@ -402,6 +413,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+    long startTime = System.nanoTime();
+
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     try {
       final FloatVectorValues mergedVectorValues =
@@ -417,6 +430,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     } catch (Throwable t) {
       handleThrowable(t);
     }
+
+    long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+    System.out.println("Cagra MERGED index created: <J_LC_MOF>" + elapsedMillis + "</J_LC_MOF>");
+
   }
 
   @Override
