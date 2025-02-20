@@ -188,48 +188,51 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
     }
     CagraIndexParams indexParams = cagraIndexParams(vectors.length);
-    // long startTime = System.nanoTime();
+    long startTime = System.nanoTime();
     var index =
         CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(indexParams).build();
-    // long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    // log.info("Cagra index created: " + elapsedMillis + "ms, documents: " + vectors.length);
+    long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+    log.info("Cagra index created: " + elapsedMillis + "ms, documents: " + vectors.length);
 
     Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
+    startTime = System.nanoTime();
     index.serialize(os, tmpFile);
+    elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+    log.info("Cagra index serialization time: " + elapsedMillis);
   }
 
   private void writeBruteForceIndex(OutputStream os, float[][] vectors) throws Throwable {
-    BruteForceIndexParams indexParams =
-        new BruteForceIndexParams.Builder()
-            .withNumWriterThreads(32) // TODO: Make this configurable later.
-            .build();
-
-    // long startTime = System.nanoTime();
-    BruteForceIndex index =
-        BruteForceIndex.newBuilder(resources)
-            .withIndexParams(indexParams)
-            .withDataset(vectors)
-            .build();
-    // long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    // log.info("BruteForce index created: " + elapsedMillis + "ms, documents: " + vectors.length);
-
-    index.serialize(os);
+//    BruteForceIndexParams indexParams =
+//        new BruteForceIndexParams.Builder()
+//            .withNumWriterThreads(32) // TODO: Make this configurable later.
+//            .build();
+//
+//    // long startTime = System.nanoTime();
+//    BruteForceIndex index =
+//        BruteForceIndex.newBuilder(resources)
+//            .withIndexParams(indexParams)
+//            .withDataset(vectors)
+//            .build();
+//    // long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+//    // log.info("BruteForce index created: " + elapsedMillis + "ms, documents: " + vectors.length);
+//
+//    index.serialize(os);
   }
 
   private void writeHNSWIndex(OutputStream os, float[][] vectors) throws Throwable {
-    if (vectors.length < 2) {
-      throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
-    }
-    CagraIndexParams indexParams = cagraIndexParams(vectors.length);
-
-    // long startTime = System.nanoTime();
-    var index =
-        CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(indexParams).build();
-    // long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    // log.info("HNSW index created: " + elapsedMillis + "ms, documents: " + vectors.length);
-
-    Path tmpFile = Files.createTempFile("tmpindex", "hnsw");
-    index.serializeToHNSW(os, tmpFile);
+//    if (vectors.length < 2) {
+//      throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
+//    }
+//    CagraIndexParams indexParams = cagraIndexParams(vectors.length);
+//
+//    // long startTime = System.nanoTime();
+//    var index =
+//        CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(indexParams).build();
+//    // long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+//    // log.info("HNSW index created: " + elapsedMillis + "ms, documents: " + vectors.length);
+//
+//    Path tmpFile = Files.createTempFile("tmpindex", "hnsw");
+//    index.serializeToHNSW(os, tmpFile);
   }
 
   @Override
