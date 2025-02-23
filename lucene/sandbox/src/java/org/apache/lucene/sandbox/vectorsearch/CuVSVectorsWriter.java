@@ -26,22 +26,19 @@ import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.VERSION_C
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
-import com.nvidia.cuvs.BruteForceIndex;
-import com.nvidia.cuvs.BruteForceIndexParams;
-import com.nvidia.cuvs.CagraIndex;
-import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
-import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
+
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
@@ -60,6 +57,13 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
+
+import com.nvidia.cuvs.BruteForceIndex;
+import com.nvidia.cuvs.BruteForceIndexParams;
+import com.nvidia.cuvs.CagraIndex;
+import com.nvidia.cuvs.CagraIndexParams;
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CuVSResources;
 
 /** KnnVectorsWriter for CuVS, responsible for merge and flush of vectors into GPU */
 public class CuVSVectorsWriter extends KnnVectorsWriter {
@@ -232,6 +236,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       infoStream.message(CUVS_COMPONENT, msg);
     }
   }
+  
+  public static String getCurrentTimeStamp() {
+    return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
+  }
 
   private void writeCagraIndex(OutputStream os, float[][] vectors) throws Throwable {
     if (vectors.length < 2) {
@@ -280,7 +288,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
-
+    System.out.println("Flush started at: " + getCurrentTimeStamp());
+    new RuntimeException("FLUSH STARTED").printStackTrace();
     long startTime = System.nanoTime();
     
     flatVectorsWriter.flush(maxDoc, sortMap);
@@ -294,7 +303,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
     System.out.println("Cagra FLUSH: <J_LC_FT>" + elapsedMillis + "</J_LC_FT>");
-  
+    System.out.println("Flush ended at: " + getCurrentTimeStamp() + " add Field time: " + (addFieldTime.get() / 1000000.0));
   }
 
   private void writeField(CuVSFieldWriter fieldData) throws IOException {
@@ -501,7 +510,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void close() throws IOException {
+    long st = System.nanoTime();
     IOUtils.close(meta, cuvsIndex, flatVectorsWriter);
+    System.out.println("Time taken for close: " + ((System.nanoTime() - st) / 1000000.0));
   }
 
   @Override

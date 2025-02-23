@@ -35,6 +35,7 @@ public class CuVSCodec extends FilterCodec {
   public CuVSCodec(String name, Codec delegate) {
     super(name, delegate);
     KnnVectorsFormat format;
+    System.out.println("HELLO WORLD");
     try {
       format =
           new CuVSVectorsFormat(

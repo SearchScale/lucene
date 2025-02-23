@@ -75,6 +75,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   public CuVSVectorsReader(
       SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader)
       throws IOException {
+    long start = System.nanoTime();
     this.resources = resources;
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
@@ -111,6 +112,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
         IOUtils.closeWhileHandlingException(this);
       }
     }
+    System.out.println("CuVSVectorsReader constructor time: " + ((System.nanoTime() - start) / 1000000.0) + " Timestamp: " + CuVSVectorsWriter.getCurrentTimeStamp());
   }
 
   private static IndexInput openCuVSInput(

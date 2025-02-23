@@ -19,9 +19,11 @@ package org.apache.lucene.index;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.Reader;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -268,6 +270,8 @@ final class IndexingChain implements Accountable {
   }
 
   Sorter.DocMap flush(SegmentWriteState state) throws IOException {
+    
+    long st = System.nanoTime();
 
     // NOTE: caller (DocumentsWriterPerThread) handles
     // aborting on any exception from this method
@@ -362,9 +366,14 @@ final class IndexingChain implements Accountable {
           "IW", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0) + " ms to write fieldInfos");
     }
 
+    System.out.println("IndexingChain: FLUSH: " + ((System.nanoTime() - st) / 1000000.0) + " Timestamp: " + getCurrentTimeStamp());
     return sortMap;
   }
 
+  public static String getCurrentTimeStamp() {
+    return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
+  }
+  
   /** Writes all buffered points. */
   private void writePoints(SegmentWriteState state, Sorter.DocMap sortMap) throws IOException {
     PointsWriter pointsWriter = null;
