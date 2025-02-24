@@ -289,7 +289,6 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
     System.out.println("Flush started at: " + getCurrentTimeStamp());
-    new RuntimeException("FLUSH STARTED").printStackTrace();
     long startTime = System.nanoTime();
     
     flatVectorsWriter.flush(maxDoc, sortMap);
