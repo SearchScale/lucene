@@ -127,6 +127,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       return hnsw;
     }
   }
+  
+  private final boolean useHNSW;
 
   public CuVSVectorsWriter(
       SegmentWriteState state,
@@ -136,7 +138,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       MergeStrategy mergeStrategy,
       IndexType indexType,
       CuVSResources resources,
-      FlatVectorsWriter flatVectorsWriter)
+      FlatVectorsWriter flatVectorsWriter,
+      boolean useHNSW)
       throws IOException {
     super();
     this.mergeStrategy = mergeStrategy;
@@ -146,6 +149,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     this.graphDegree = graphDegree;
     this.resources = resources;
     this.flatVectorsWriter = flatVectorsWriter;
+    this.useHNSW = useHNSW;
     this.infoStream = state.infoStream;
 
     String metaFileName =
@@ -257,6 +261,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   }
 
   private void writeHNSWIndex(OutputStream os, float[][] vectors) throws Throwable {
+    if (!useHNSW) { // Skip HNSW writing if disabled
+      return;
+    }
+    
     if (vectors.length < 2) {
       throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
     }
@@ -335,7 +343,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       }
 
       hnswIndexOffset = cuvsIndex.getFilePointer();
-      if (indexType.hnsw()) {
+      if (useHNSW && indexType.hnsw()) {
         var hnswIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
         if (vectors.length > MIN_CAGRA_INDEX_SIZE) {
           try {

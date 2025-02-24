@@ -66,6 +66,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   private static final Logger log = Logger.getLogger(CuVSVectorsReader.class.getName());
 
   private final CuVSResources resources;
+  private final boolean useHNSW;
   private final FlatVectorsReader flatVectorsReader; // for reading the raw vectors
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
@@ -73,11 +74,12 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   private final IndexInput cuvsIndexInput;
 
   public CuVSVectorsReader(
-      SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader)
+      SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader, boolean useHNSW)
       throws IOException {
     this.resources = resources;
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
+    this.useHNSW = useHNSW;
     this.fields = new IntObjectHashMap<>();
 
     String metaFileName =
@@ -260,7 +262,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       }
 
       len = fieldEntry.hnswIndexLength();
-      if (len > 0) {
+      if (useHNSW && len > 0) {
         long off = fieldEntry.hnswIndexOffset();
         try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
             var in = new IndexInputInputStream(slice)) {
