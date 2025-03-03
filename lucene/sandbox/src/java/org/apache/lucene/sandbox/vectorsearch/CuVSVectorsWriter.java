@@ -149,7 +149,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     this.graphDegree = graphDegree;
     this.resources = resources;
     this.flatVectorsWriter = flatVectorsWriter;
-    this.useHNSW = useHNSW;
+    this.useHNSW = Boolean.getBoolean("lucene.cuvs.hnsw");
+    log.info("CuVSVectorsWriter initialized. useHNSW=" + this.useHNSW);
     this.infoStream = state.infoStream;
 
     String metaFileName =
@@ -262,9 +263,13 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   private void writeHNSWIndex(OutputStream os, float[][] vectors) throws Throwable {
     if (!useHNSW) { // Skip HNSW writing if disabled
+      log.warning("Skipping HNSW indexing because useHNSW is false.");
       return;
     }
     
+    if (vectors.length == 0) {
+      log.warning("HNSW indexing failed because no vectors were provided.");
+  }
     if (vectors.length < 2) {
       throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
     }

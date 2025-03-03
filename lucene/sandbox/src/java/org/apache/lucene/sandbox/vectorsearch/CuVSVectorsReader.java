@@ -79,7 +79,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     this.resources = resources;
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
-    this.useHNSW = useHNSW;
+    this.useHNSW = Boolean.getBoolean("lucene.cuvs.hnsw");
+    log.info("CuVSVectorsReader initialized. useHNSW=" + this.useHNSW);
     this.fields = new IntObjectHashMap<>();
 
     String metaFileName =
@@ -238,6 +239,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   }
 
   private CuVSIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
+    log.info("Loading CuVS index for field: ");
+    
     CagraIndex cagraIndex = null;
     BruteForceIndex bruteForceIndex = null;
     HnswIndex hnswIndex = null;
@@ -263,6 +266,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
 
       len = fieldEntry.hnswIndexLength();
       if (useHNSW && len > 0) {
+        log.info("Attempting to load HNSW index.");
         long off = fieldEntry.hnswIndexOffset();
         try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
             var in = new IndexInputInputStream(slice)) {
