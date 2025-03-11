@@ -87,4 +87,13 @@ import org.apache.lucene.search.TotalHits;
         new TotalHits(scoreDocs.size(), TotalHits.Relation.EQUAL_TO),
         scoreDocs.toArray(new ScoreDoc[scoreDocs.size()]));
   }
+
+  public int getiTopK() {
+    return iTopK;
+  }
+
+  public int getSearchWidth() {
+    return searchWidth;
+  }
+  
 }

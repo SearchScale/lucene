@@ -348,6 +348,13 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     }
     final int topK = Math.min(collectorTopK, fieldEntry.count());
     assert topK > 0 : "Expected topK > 0, got:" + topK;
+    
+    int iTopK = 32;
+    int searchWidth = 16;
+    if (knnCollector instanceof PerLeafCuVSKnnCollector) {
+      iTopK = ((PerLeafCuVSKnnCollector)knnCollector).getiTopK();
+      searchWidth = ((PerLeafCuVSKnnCollector)knnCollector).getSearchWidth();
+    }
 
     Map<Integer, Float> result;
     if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
@@ -355,7 +362,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       CagraSearchParams searchParams =
           new CagraSearchParams.Builder(resources)
               .withItopkSize(topK) // TODO: params
-              .withSearchWidth(1)
+              .withSearchWidth(searchWidth)
+              .withItopkSize(iTopK)
               .build();
 
       var query =
