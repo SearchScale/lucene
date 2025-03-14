@@ -260,7 +260,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
         cagraIndex = CagraIndex.newBuilder(resources).from(new IndexInputInputStream(cagraIndexInput)).build();
       }
       
-      if (cagraIndex != null) {
+      if (cagraIndex == null) {
         long len = fieldEntry.cagraIndexLength();
         if (len > 0) {
           long off = fieldEntry.cagraIndexOffset();
