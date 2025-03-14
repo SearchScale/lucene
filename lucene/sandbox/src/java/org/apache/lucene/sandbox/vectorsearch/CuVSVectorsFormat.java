@@ -38,7 +38,8 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
   static final String CUVS_META_CODEC_EXT = "vemc"; // ""cagmf";
   static final String CUVS_INDEX_CODEC_NAME = "Lucene102CuVSVectorsFormatIndex";
-  static final String CUVS_INDEX_EXT = "vcag";
+  static final String CUVS_INDEX_EXT = "vcuvs";
+  static final String CAGRA_INDEX_EXT = "vcag";
 
   static final int VERSION_START = 0;
   static final int VERSION_CURRENT = VERSION_START;

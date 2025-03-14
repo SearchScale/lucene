@@ -33,14 +33,19 @@ import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.CuVSResources;
+
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
@@ -57,7 +62,11 @@ import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.FSDirectory;
+import org.apache.lucene.store.FilterDirectory;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
@@ -89,7 +98,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   private final FlatVectorsWriter flatVectorsWriter; // for writing the raw vectors
   private final List<CuVSFieldWriter> fields = new ArrayList<>();
-  private final IndexOutput meta, cuvsIndex;
+  private final IndexOutput meta, cuvsIndex, cagraIndex;
   private final InfoStream infoStream;
   private boolean finished;
 
@@ -129,6 +138,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       return hnsw;
     }
   }
+  
+  private SegmentWriteState state;
+  private String cagraFileName;
 
   public CuVSVectorsWriter(
       SegmentWriteState state,
@@ -149,17 +161,23 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     this.resources = resources;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
+    this.state = state;
 
     String metaFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, CUVS_META_CODEC_EXT);
-    String cagraFileName =
+    String cuvsFileName =
         IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, CUVS_INDEX_EXT);
+
+    cagraFileName = IndexFileNames.segmentFileName(
+        state.segmentInfo.name, state.segmentSuffix, CuVSVectorsFormat.CAGRA_INDEX_EXT);
 
     boolean success = false;
     try {
       meta = state.directory.createOutput(metaFileName, state.context);
-      cuvsIndex = state.directory.createOutput(cagraFileName, state.context);
+      cuvsIndex = state.directory.createOutput(cuvsFileName, state.context);
+      cagraIndex = state.directory.createOutput(cagraFileName, state.context);
+
       CodecUtil.writeIndexHeader(
           meta,
           CUVS_META_CODEC_NAME,
@@ -246,6 +264,21 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     index.destroyIndex();
   }
 
+  private void writeCagraIndexDirectToFile(Path outputFile, float[][] vectors) throws Throwable {
+    if (vectors.length < 2) {
+      throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
+    }
+    CagraIndexParams params = cagraIndexParams(vectors.length);
+    long startTime = System.nanoTime();
+    var index =
+        CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(params).build();
+    long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
+    info("Cagra index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
+    Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
+    index.serialize(os, tmpFile);
+    index.destroyIndex();
+  }
+
   private void writeBruteForceIndex(OutputStream os, float[][] vectors) throws Throwable {
     BruteForceIndexParams params =
         new BruteForceIndexParams.Builder()
@@ -310,6 +343,18 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     writeFieldInternal(fieldData.fieldInfo(), newVectors);
   }
 
+  private boolean usingInplaceWriting(Directory directory) {
+    Directory unwrapped = unwrap(directory);
+    return unwrapped instanceof CuVSMMapDirectory;
+  }
+  
+  private Directory unwrap (Directory dir) {
+    while (dir instanceof FilterDirectory) {
+      dir = FilterDirectory.unwrap(dir);
+    }
+    return dir;
+  }
+
   private void writeFieldInternal(FieldInfo fieldInfo, float[][] vectors) throws IOException {
     if (vectors.length == 0) {
       writeEmpty(fieldInfo);
@@ -330,7 +375,15 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       if (indexType.cagra()) {
         try {
           var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-          writeCagraIndex(cagraIndexOutputStream, vectors);
+          if (usingInplaceWriting(state.directory)) {
+            CuVSMMapDirectory d = (CuVSMMapDirectory) unwrap(state.directory);
+            String newFileName = d.getDirectory().toFile().toString() + "/" + cagraFileName + ".tmpcuvs";
+            System.out.println(newFileName);
+            writeCagraIndexDirectToFile(Paths.get(newFileName), vectors);
+            System.out.println("File size: " + new File(newFileName).length());
+          } else {
+            writeCagraIndex(cagraIndexOutputStream, vectors);
+          }
         } catch (Throwable t) {
           handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
           // workaround for cuVS issue
@@ -491,7 +544,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void close() throws IOException {
-    IOUtils.close(meta, cuvsIndex, flatVectorsWriter);
+    IOUtils.close(meta, cuvsIndex, flatVectorsWriter, cagraIndex);
   }
 
   @Override
