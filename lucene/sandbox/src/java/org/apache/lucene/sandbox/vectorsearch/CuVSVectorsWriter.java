@@ -27,17 +27,9 @@ import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsReader.handleThr
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
-import com.nvidia.cuvs.BruteForceIndex;
-import com.nvidia.cuvs.BruteForceIndexParams;
-import com.nvidia.cuvs.CagraIndex;
-import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
-import com.nvidia.cuvs.CuVSResources;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -45,8 +37,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.logging.Logger;
+
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
@@ -63,13 +55,18 @@ import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.FilterDirectory;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
+
+import com.nvidia.cuvs.BruteForceIndex;
+import com.nvidia.cuvs.BruteForceIndexParams;
+import com.nvidia.cuvs.CagraIndex;
+import com.nvidia.cuvs.CagraIndexParams;
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CuVSResources;
 
 /** KnnVectorsWriter for CuVS, responsible for merge and flush of vectors into GPU */
 public class CuVSVectorsWriter extends KnnVectorsWriter {
@@ -274,8 +271,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
         CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(params).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
     info("Cagra index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
-    Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
-    index.serialize(os, tmpFile);
+    info("Serializing to " + outputFile);
+    index.serialize(outputFile);
     index.destroyIndex();
   }
 
@@ -343,12 +340,12 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     writeFieldInternal(fieldData.fieldInfo(), newVectors);
   }
 
-  private boolean usingInplaceWriting(Directory directory) {
+  protected static boolean usingInplaceWriting(Directory directory) {
     Directory unwrapped = unwrap(directory);
     return unwrapped instanceof CuVSMMapDirectory;
   }
   
-  private Directory unwrap (Directory dir) {
+  protected static Directory unwrap (Directory dir) {
     while (dir instanceof FilterDirectory) {
       dir = FilterDirectory.unwrap(dir);
     }
@@ -378,9 +375,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
           if (usingInplaceWriting(state.directory)) {
             CuVSMMapDirectory d = (CuVSMMapDirectory) unwrap(state.directory);
             String newFileName = d.getDirectory().toFile().toString() + "/" + cagraFileName + ".tmpcuvs";
-            System.out.println(newFileName);
+            info("Going to write the cagra index into " + newFileName);
             writeCagraIndexDirectToFile(Paths.get(newFileName), vectors);
-            System.out.println("File size: " + new File(newFileName).length());
+            info("File size "+newFileName+": " + new File(newFileName).length());
           } else {
             writeCagraIndex(cagraIndexOutputStream, vectors);
           }

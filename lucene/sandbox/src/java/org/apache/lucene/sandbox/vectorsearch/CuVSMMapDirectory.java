@@ -35,18 +35,16 @@ public class CuVSMMapDirectory extends MMapDirectory {
 
   @Override
   public void deleteFile(String name) throws IOException {
-    System.out.println("Delete called for: " + name);
     super.deleteFile(name);
   }
+
   @Override
   protected void fsync(String name) throws IOException {
     if (name.endsWith(".vcag")) {
-      System.out.println("Ignoring writing " + name);
+      //System.out.println("Ignoring writing " + name);
       String fname = directory.resolve(name).toString();
-      
-      System.out.println(fname + " Size: " + new File(fname).length());
-      System.out.println(fname +".tmpcuvs Size: " + new File(fname + ".copyme").length());
-      
+      //System.out.println(fname + " Size: " + new File(fname).length());
+      //System.out.println(fname +".tmpcuvs Size: " + new File(fname + ".copyme").length());
       if (new File(fname).exists()) new File(fname).delete();
       Files.move(Paths.get(fname + ".tmpcuvs"), Paths.get(fname));
       return;

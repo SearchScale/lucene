@@ -74,6 +74,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   private final IntObjectHashMap<FieldEntry> fields;
   private final IntObjectHashMap<CuVSIndex> cuvsIndices;
   private final IndexInput cuvsIndexInput;
+  private final SegmentReadState state;
 
   public CuVSVectorsReader(
       SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader)
@@ -82,6 +83,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
     this.fields = new IntObjectHashMap<>();
+    this.state = state;
 
     String metaFileName =
         IndexFileNames.segmentFileName(
@@ -140,6 +142,14 @@ public class CuVSVectorsReader extends KnnVectorsReader {
         IOUtils.closeWhileHandlingException(in);
       }
     }
+  }
+
+  private static IndexInput openCagraInput(
+      SegmentReadState state, IOContext context) throws IOException {
+    String fileName =
+        IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, CuVSVectorsFormat.CAGRA_INDEX_EXT);
+    IndexInput in = state.directory.openInput(fileName, context);
+    return in;
   }
 
   private void validateFieldEntry(FieldInfo info, FieldEntry fieldEntry) {
@@ -244,31 +254,40 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     HnswIndex hnswIndex = null;
 
     try {
-      long len = fieldEntry.cagraIndexLength();
-      if (len > 0) {
-        long off = fieldEntry.cagraIndexOffset();
-        try (var slice = cuvsIndexInput.slice("cagra index", off, len);
-            var in = new IndexInputInputStream(slice)) {
-          cagraIndex = CagraIndex.newBuilder(resources).from(in).build();
-        }
+      
+      if (CuVSVectorsWriter.usingInplaceWriting(state.directory)) {
+        IndexInput cagraIndexInput = openCagraInput(state, state.context.withReadAdvice(ReadAdvice.SEQUENTIAL));
+        cagraIndex = CagraIndex.newBuilder(resources).from(new IndexInputInputStream(cagraIndexInput)).build();
       }
-
-      len = fieldEntry.bruteForceIndexLength();
-      if (len > 0) {
-        long off = fieldEntry.bruteForceIndexOffset();
-        try (var slice = cuvsIndexInput.slice("bf index", off, len);
-            var in = new IndexInputInputStream(slice)) {
-          bruteForceIndex = BruteForceIndex.newBuilder(resources).from(in).build();
+      
+      if (cagraIndex != null) {
+        long len = fieldEntry.cagraIndexLength();
+        if (len > 0) {
+          long off = fieldEntry.cagraIndexOffset();
+          try (var slice = cuvsIndexInput.slice("cagra index", off, len);
+              var in = new IndexInputInputStream(slice)) {
+            cagraIndex = CagraIndex.newBuilder(resources).from(in).build();
+          }
         }
-      }
 
-      len = fieldEntry.hnswIndexLength();
-      if (len > 0) {
-        long off = fieldEntry.hnswIndexOffset();
-        try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
-            var in = new IndexInputInputStream(slice)) {
-          var params = new HnswIndexParams.Builder().build();
-          hnswIndex = HnswIndex.newBuilder(resources).withIndexParams(params).from(in).build();
+
+        len = fieldEntry.bruteForceIndexLength();
+        if (len > 0) {
+          long off = fieldEntry.bruteForceIndexOffset();
+          try (var slice = cuvsIndexInput.slice("bf index", off, len);
+              var in = new IndexInputInputStream(slice)) {
+            bruteForceIndex = BruteForceIndex.newBuilder(resources).from(in).build();
+          }
+        }
+
+        len = fieldEntry.hnswIndexLength();
+        if (len > 0) {
+          long off = fieldEntry.hnswIndexOffset();
+          try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
+              var in = new IndexInputInputStream(slice)) {
+            var params = new HnswIndexParams.Builder().build();
+            hnswIndex = HnswIndex.newBuilder(resources).withIndexParams(params).from(in).build();
+          }
         }
       }
     } catch (Throwable t) {
