@@ -31,4 +31,5 @@ dependencies {
   moduleTestImplementation project(':lucene:test-framework')
   moduleImplementation deps.commons.lang3
   moduleImplementation deps.cuvs
+  implementation 'com.nvidia.cuvs:cuvs-java:25.02.0'
 }
