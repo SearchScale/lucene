@@ -442,7 +442,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     KnnVectorValues.DocIndexIterator iter = floatVectorValues.iterator();
     for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
       assert iter.index() == count;
-      dst[iter.index()] = floatVectorValues.vectorValue(iter.index());
+      dst[count] = floatVectorValues.vectorValue(iter.index()).clone();
       docsWithField.add(docV);
       count++;
     }
