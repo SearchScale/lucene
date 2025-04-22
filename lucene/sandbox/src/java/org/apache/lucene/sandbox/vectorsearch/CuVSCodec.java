@@ -32,6 +32,20 @@ public class CuVSCodec extends FilterCodec {
     this("CuVSCodec", new Lucene101Codec());
   }
 
+public CuVSCodec(int writerThreads, int intGraphDegree, int graphDegree,
+                 MergeStrategy mergeStrategy, IndexType indexType) {
+  super("CuVSCodec", new Lucene101Codec());
+  try {
+    KnnVectorsFormat format = new CuVSVectorsFormat(
+        writerThreads, intGraphDegree, graphDegree, mergeStrategy, indexType);
+    setKnnFormat(format);
+  } catch (LibraryException ex) {
+    Logger log = Logger.getLogger(CuVSCodec.class.getName());
+    log.severe("Couldn't load native library, possible classloader issue. " + ex.getMessage());
+  }
+}
+
+
   public CuVSCodec(String name, Codec delegate) {
     super(name, delegate);
     KnnVectorsFormat format;
