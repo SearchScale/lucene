@@ -40,6 +40,7 @@ public class CuVSCodec extends FilterCodec {
       format =
           new CuVSVectorsFormat(
               1, 128, 64, MergeStrategy.NON_TRIVIAL_MERGE, IndexType.CAGRA, useHNSW);
+      format = new CuVSVectorsFormat(1, 128, 64, MergeStrategy.NON_TRIVIAL_MERGE, IndexType.CAGRA);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       Logger log = Logger.getLogger(CuVSCodec.class.getName());

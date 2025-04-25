@@ -23,6 +23,7 @@ import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_INDE
 import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_META_CODEC_EXT;
 import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.CUVS_META_CODEC_NAME;
 import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsFormat.VERSION_CURRENT;
+import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsReader.handleThrowable;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
@@ -57,6 +58,7 @@ import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
 
@@ -212,7 +214,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       // https://github.com/rapidsai/cuvs/issues/666
       throw new IllegalArgumentException("cagra index must be greater than 2");
     }
-    var minIntGraphDegree = Math.min(intGraphDegree, size);
+    var minIntGraphDegree = Math.min(intGraphDegree, size - 1);
     var minGraphDegree = Math.min(graphDegree, minIntGraphDegree);
     // log.info(indexMsg(size, intGraphDegree, minIntGraphDegree, graphDegree, minGraphDegree));
 
@@ -246,6 +248,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     info("Cagra index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
     Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
     index.serialize(os, tmpFile);
+    index.destroyIndex();
   }
 
   private void writeBruteForceIndex(OutputStream os, float[][] vectors) throws Throwable {
@@ -259,6 +262,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
     info("bf index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
     index.serialize(os);
+    index.destroyIndex();
   }
 
   private void writeHNSWIndex(OutputStream os, float[][] vectors) throws Throwable {
@@ -281,6 +285,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     info("HNSW index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
     Path tmpFile = Files.createTempFile("tmpindex", "hnsw");
     index.serializeToHNSW(os, tmpFile);
+    index.destroyIndex();
   }
 
   @Override
@@ -319,23 +324,30 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   }
 
   private void writeFieldInternal(FieldInfo fieldInfo, float[][] vectors) throws IOException {
+    if (vectors.length == 0) {
+      writeEmpty(fieldInfo);
+      return;
+    }
     long cagraIndexOffset, cagraIndexLength = 0L;
     long bruteForceIndexOffset, bruteForceIndexLength = 0L;
     long hnswIndexOffset, hnswIndexLength = 0L;
-    assert vectors.length > 0;
+
+    // workaround for the minimum number of vectors for Cagra
+    IndexType indexType =
+        this.indexType.cagra() && vectors.length < MIN_CAGRA_INDEX_SIZE
+            ? IndexType.BRUTE_FORCE
+            : this.indexType;
+
     try {
       cagraIndexOffset = cuvsIndex.getFilePointer();
       if (indexType.cagra()) {
-        if (vectors.length > MIN_CAGRA_INDEX_SIZE) {
-          try {
-            var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-            writeCagraIndex(cagraIndexOutputStream, vectors);
-          } catch (Throwable t) {
-            handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
-          }
-        } else {
-          // well, no index will be written at all
-          assert indexType.bruteForce || indexType.hnsw();
+        try {
+          var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
+          writeCagraIndex(cagraIndexOutputStream, vectors);
+        } catch (Throwable t) {
+          handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
+          // workaround for cuVS issue
+          indexType = IndexType.BRUTE_FORCE;
         }
         cagraIndexLength = cuvsIndex.getFilePointer() - cagraIndexOffset;
       }
@@ -381,6 +393,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     } catch (Throwable t) {
       handleThrowable(t);
     }
+  }
+
+  private void writeEmpty(FieldInfo fieldInfo) throws IOException {
+    writeMeta(fieldInfo, 0, 0L, 0L, 0L, 0L, 0L, 0L);
   }
 
   private void writeMeta(
@@ -431,16 +447,8 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     handleThrowable(t);
   }
 
-  static void handleThrowable(Throwable t) throws IOException {
-    switch (t) {
-      case IOException ioe -> throw ioe;
-      case Error error -> throw error;
-      case RuntimeException re -> throw re;
-      case null, default -> throw new RuntimeException("UNEXPECTED: exception type", t);
-    }
-  }
-
-  private static DocsWithFieldSet getVectorData(FloatVectorValues floatVectorValues, float[][] dst)
+  /** Copies the vector values into dst. Returns the actual number of vectors copied. */
+  private static int getVectorData(FloatVectorValues floatVectorValues, float[][] dst)
       throws IOException {
     DocsWithFieldSet docsWithField = new DocsWithFieldSet();
     int count = 0;
@@ -451,7 +459,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       docsWithField.add(docV);
       count++;
     }
-    return docsWithField;
+    return docsWithField.cardinality();
   }
 
   @Override
@@ -466,7 +474,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
           };
 
       float[][] vectors = new float[mergedVectorValues.size()][mergedVectorValues.dimension()];
-      getVectorData(mergedVectorValues, vectors);
+      int ret = getVectorData(mergedVectorValues, vectors);
+      if (ret < vectors.length) {
+        vectors = ArrayUtil.copyOfSubArray(vectors, 0, ret);
+      }
       writeFieldInternal(fieldInfo, vectors);
     } catch (Throwable t) {
       handleThrowable(t);
