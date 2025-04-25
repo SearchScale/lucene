@@ -48,6 +48,7 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   public static final int DEFAULT_GRAPH_DEGREE = 64;
   public static final MergeStrategy DEFAULT_MERGE_STRATEGY = MergeStrategy.NON_TRIVIAL_MERGE;
   public static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
+  public static final boolean DEFAULT_USE_HNSW = true;
 
   static CuVSResources resources = cuVSResourcesOrNull();
 
@@ -61,6 +62,7 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   final int graphDegree;
   final MergeStrategy mergeStrategy;
   final CuVSVectorsWriter.IndexType indexType; // the index type to build, when writing
+  final boolean useHNSW;
 
   /**
    * Creates a CuVSVectorsFormat, with default values.
@@ -73,7 +75,8 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
         DEFAULT_MERGE_STRATEGY,
-        DEFAULT_INDEX_TYPE);
+        DEFAULT_INDEX_TYPE,
+        DEFAULT_USE_HNSW);
   }
 
   /**
@@ -86,14 +89,21 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
       int intGraphDegree,
       int graphDegree,
       MergeStrategy mergeStrategy,
-      IndexType indexType) {
+      IndexType indexType,
+      boolean useHNSW)
+      throws LibraryException {
     super("CuVSVectorsFormat");
     this.mergeStrategy = mergeStrategy;
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
     this.indexType = indexType;
+    this.useHNSW = useHNSW;
   }
+
+  public boolean isHNSWEnabled() {
+    return useHNSW;
+}
 
   private static CuVSResources cuVSResourcesOrNull() {
     try {
@@ -133,14 +143,15 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
         mergeStrategy,
         indexType,
         resources,
-        flatWriter);
+        flatWriter,
+        useHNSW);
   }
 
   @Override
   public CuVSVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     checkSupported();
     var flatReader = flatVectorsFormat.fieldsReader(state);
-    return new CuVSVectorsReader(state, resources, flatReader);
+    return new CuVSVectorsReader(state, resources, flatReader, useHNSW);
   }
 
   @Override
@@ -156,6 +167,7 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
     sb.append("graphDegree=").append(graphDegree);
     sb.append("mergeStrategy=").append(mergeStrategy);
     sb.append("resources=").append(resources);
+    sb.append("useHNSW=").append(useHNSW);
     sb.append(")");
     return sb.toString();
   }

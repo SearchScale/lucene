@@ -36,7 +36,10 @@ public class CuVSCodec extends FilterCodec {
     super(name, delegate);
     KnnVectorsFormat format;
     try {
-      format = new CuVSVectorsFormat(1, 128, 64, MergeStrategy.NON_TRIVIAL_MERGE, IndexType.CAGRA);
+      boolean useHNSW = Boolean.parseBoolean(System.getProperty("lucene.cuvs.hnsw", "true"));
+      format =
+          new CuVSVectorsFormat(
+              1, 128, 64, MergeStrategy.NON_TRIVIAL_MERGE, IndexType.CAGRA, useHNSW);
       setKnnFormat(format);
     } catch (LibraryException ex) {
       Logger log = Logger.getLogger(CuVSCodec.class.getName());

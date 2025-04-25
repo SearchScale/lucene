@@ -69,6 +69,7 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   private static final Logger log = Logger.getLogger(CuVSVectorsReader.class.getName());
 
   private final CuVSResources resources;
+  private final boolean useHNSW;
   private final FlatVectorsReader flatVectorsReader; // for reading the raw vectors
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
@@ -76,11 +77,13 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   private final IndexInput cuvsIndexInput;
 
   public CuVSVectorsReader(
-      SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader)
+      SegmentReadState state, CuVSResources resources, FlatVectorsReader flatReader, boolean useHNSW)
       throws IOException {
     this.resources = resources;
     this.flatVectorsReader = flatReader;
     this.fieldInfos = state.fieldInfos;
+    this.useHNSW = Boolean.getBoolean("lucene.cuvs.hnsw");
+    log.info("CuVSVectorsReader initialized. useHNSW=" + this.useHNSW);
     this.fields = new IntObjectHashMap<>();
 
     String metaFileName =
@@ -239,6 +242,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   }
 
   private CuVSIndex loadCuVSIndex(FieldEntry fieldEntry) throws IOException {
+    log.info("Loading CuVS index for field: ");
+    
     CagraIndex cagraIndex = null;
     BruteForceIndex bruteForceIndex = null;
     HnswIndex hnswIndex = null;
@@ -263,7 +268,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       }
 
       len = fieldEntry.hnswIndexLength();
-      if (len > 0) {
+      if (useHNSW && len > 0) {
+        log.info("Attempting to load HNSW index.");
         long off = fieldEntry.hnswIndexOffset();
         try (var slice = cuvsIndexInput.slice("hnsw index", off, len);
             var in = new IndexInputInputStream(slice)) {
@@ -350,7 +356,23 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     assert topK > 0 : "Expected topK > 0, got:" + topK;
 
     Map<Integer, Float> result;
-    if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
+    if(useHNSW && cuvsIndex.getHNSWIndex() != null) {
+      log.info("Searching with HNSW index");
+      var hnswQuery = new com.nvidia.cuvs.HnswQuery.Builder()
+                          .withQueryVectors(new float[][] { target })
+                          .withTopK(knnCollector.k())
+                          .build();
+      List<Map<Integer, Float>> searchResult = null;
+      try {
+        searchResult = cuvsIndex.getHNSWIndex().search(hnswQuery).getResults();
+      }catch (Throwable t) {
+         handleThrowable(t);
+      }
+
+      assert searchResult.size() == 1;
+      result = searchResult.getFirst();
+    }
+    else if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
       // log.info("searching cagra index");
       CagraSearchParams searchParams =
           new CagraSearchParams.Builder(resources)
