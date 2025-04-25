@@ -356,7 +356,23 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     assert topK > 0 : "Expected topK > 0, got:" + topK;
 
     Map<Integer, Float> result;
-    if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
+    if(useHNSW && cuvsIndex.getHNSWIndex() != null) {
+      log.info("Searching with HNSW index");
+      var hnswQuery = new com.nvidia.cuvs.HnswQuery.Builder()
+                          .withQueryVectors(new float[][] { target })
+                          .withTopK(knnCollector.k())
+                          .build();
+      List<Map<Integer, Float>> searchResult = null;
+      try {
+        searchResult = cuvsIndex.getHNSWIndex().search(hnswQuery).getResults();
+      }catch (Throwable t) {
+         handleThrowable(t);
+      }
+
+      assert searchResult.size() == 1;
+      result = searchResult.getFirst();
+    }
+    else if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
       // log.info("searching cagra index");
       CagraSearchParams searchParams =
           new CagraSearchParams.Builder(resources)
