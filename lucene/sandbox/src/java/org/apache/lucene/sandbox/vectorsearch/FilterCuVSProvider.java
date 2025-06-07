@@ -19,6 +19,7 @@ package org.apache.lucene.sandbox.vectorsearch;
 import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CuVSResources;
+import com.nvidia.cuvs.Dataset;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.spi.CuVSProvider;
 import java.nio.file.Path;
@@ -57,5 +58,15 @@ import java.nio.file.Path;
   public HnswIndex.Builder newHnswIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException {
     return delegate.newHnswIndexBuilder(cuVSResources);
+  }
+
+  @Override
+  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0) throws Throwable {
+    return delegate.mergeCagraIndexes(arg0);
+  }
+
+  @Override
+  public Dataset newDataset(int arg0, int arg1) throws UnsupportedOperationException {
+    return delegate.newDataset(arg0, arg1);
   }
 }
