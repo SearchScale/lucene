@@ -209,14 +209,14 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       // https://github.com/rapidsai/cuvs/issues/666
       throw new IllegalArgumentException("cagra index must be greater than 2");
     }
-    var minIntGraphDegree = Math.min(intGraphDegree, size - 1);
-    var minGraphDegree = Math.min(graphDegree, minIntGraphDegree);
+    // var minIntGraphDegree = Math.min(intGraphDegree, size - 1);
+    // var minGraphDegree = Math.min(graphDegree, minIntGraphDegree);
     // log.info(indexMsg(size, intGraphDegree, minIntGraphDegree, graphDegree, minGraphDegree));
 
     return new CagraIndexParams.Builder()
         .withNumWriterThreads(cuvsWriterThreads)
-        .withIntermediateGraphDegree(minIntGraphDegree)
-        .withGraphDegree(minGraphDegree)
+        .withIntermediateGraphDegree(intGraphDegree)
+        .withGraphDegree(graphDegree)
         .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
         .build();
   }
