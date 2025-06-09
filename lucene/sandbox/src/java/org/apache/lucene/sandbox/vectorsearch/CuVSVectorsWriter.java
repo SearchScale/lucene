@@ -27,12 +27,6 @@ import static org.apache.lucene.sandbox.vectorsearch.CuVSVectorsReader.handleThr
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.apache.lucene.util.RamUsageEstimator.shallowSizeOfInstance;
 
-import com.nvidia.cuvs.BruteForceIndex;
-import com.nvidia.cuvs.BruteForceIndexParams;
-import com.nvidia.cuvs.CagraIndex;
-import com.nvidia.cuvs.CagraIndexParams;
-import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
-import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -42,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.logging.Logger;
+
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
@@ -58,9 +53,16 @@ import org.apache.lucene.index.Sorter;
 import org.apache.lucene.index.Sorter.DocMap;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
-import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
+
+import com.nvidia.cuvs.BruteForceIndex;
+import com.nvidia.cuvs.BruteForceIndexParams;
+import com.nvidia.cuvs.CagraIndex;
+import com.nvidia.cuvs.CagraIndexParams;
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import com.nvidia.cuvs.CuVSResources;
+import com.nvidia.cuvs.Dataset;
 
 /** KnnVectorsWriter for CuVS, responsible for merge and flush of vectors into GPU */
 public class CuVSVectorsWriter extends KnnVectorsWriter {
@@ -84,20 +86,11 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   private final CuVSResources resources;
   private final IndexType indexType;
 
-  @SuppressWarnings("unused")
-  private final MergeStrategy mergeStrategy;
-
   private final FlatVectorsWriter flatVectorsWriter; // for writing the raw vectors
   private final List<CuVSFieldWriter> fields = new ArrayList<>();
   private final IndexOutput meta, cuvsIndex;
   private final InfoStream infoStream;
   private boolean finished;
-
-  /** Merge strategy used for CuVS */
-  public enum MergeStrategy {
-    TRIVIAL_MERGE,
-    NON_TRIVIAL_MERGE
-  }
 
   /** The CuVS index Type. */
   public enum IndexType {
@@ -135,13 +128,11 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       int cuvsWriterThreads,
       int intGraphDegree,
       int graphDegree,
-      MergeStrategy mergeStrategy,
       IndexType indexType,
       CuVSResources resources,
       FlatVectorsWriter flatVectorsWriter)
       throws IOException {
     super();
-    this.mergeStrategy = mergeStrategy;
     this.indexType = indexType;
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
@@ -231,45 +222,45 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     }
   }
 
-  private void writeCagraIndex(OutputStream os, float[][] vectors) throws Throwable {
-    if (vectors.length < 2) {
-      throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
+  private void writeCagraIndex(OutputStream os, Dataset dataset) throws Throwable {
+    if (dataset.size() < 2) {
+      throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
     }
-    CagraIndexParams params = cagraIndexParams(vectors.length);
+    CagraIndexParams params = cagraIndexParams(dataset.size());
     long startTime = System.nanoTime();
     var index =
-        CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(params).build();
+        CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(params).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    info("Cagra index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
+    info("Cagra index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
     index.serialize(os, tmpFile);
     index.destroyIndex();
   }
 
-  private void writeBruteForceIndex(OutputStream os, float[][] vectors) throws Throwable {
+  private void writeBruteForceIndex(OutputStream os, Dataset dataset) throws Throwable {
     BruteForceIndexParams params =
         new BruteForceIndexParams.Builder()
             .withNumWriterThreads(32) // TODO: Make this configurable later.
             .build();
     long startTime = System.nanoTime();
     var index =
-        BruteForceIndex.newBuilder(resources).withIndexParams(params).withDataset(vectors).build();
+        BruteForceIndex.newBuilder(resources).withIndexParams(params).withDataset(dataset).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    info("bf index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
+    info("bf index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     index.serialize(os);
     index.destroyIndex();
   }
 
-  private void writeHNSWIndex(OutputStream os, float[][] vectors) throws Throwable {
-    if (vectors.length < 2) {
-      throw new IllegalArgumentException(vectors.length + " vectors, less than min [2] required");
+  private void writeHNSWIndex(OutputStream os, Dataset dataset) throws Throwable {
+    if (dataset.size() < 2) {
+      throw new IllegalArgumentException(dataset.size() + " vectors, less than min [2] required");
     }
-    CagraIndexParams indexParams = cagraIndexParams(vectors.length);
+    CagraIndexParams indexParams = cagraIndexParams(dataset.size());
     long startTime = System.nanoTime();
     var index =
-        CagraIndex.newBuilder(resources).withDataset(vectors).withIndexParams(indexParams).build();
+        CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(indexParams).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    info("HNSW index created in " + elapsedMillis + "ms, with " + vectors.length + " vectors");
+    info("HNSW index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     Path tmpFile = Files.createTempFile("tmpindex", "hnsw");
     index.serializeToHNSW(os, tmpFile);
     index.destroyIndex();
@@ -289,8 +280,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   private void writeField(CuVSFieldWriter fieldData) throws IOException {
     // TODO: Argh! https://github.com/rapidsai/cuvs/issues/698
-    float[][] vectors = fieldData.getVectors().toArray(float[][]::new);
-    writeFieldInternal(fieldData.fieldInfo(), vectors);
+    List<float[]> vectors = fieldData.getVectors();
+    Dataset dataset = Dataset.create(vectors.size(), fieldData.fieldInfo().getVectorDimension());
+    for (float[] vec: vectors) dataset.addVector(vec); 
+    writeFieldInternal(fieldData.fieldInfo(), dataset);
   }
 
   private void writeSortingField(CuVSFieldWriter fieldData, Sorter.DocMap sortMap)
@@ -300,18 +293,17 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
 
-    // TODO: Argh! https://github.com/rapidsai/cuvs/issues/698
-    // Also will be replaced with the cuVS merge api
     float[][] oldVectors = fieldData.getVectors().toArray(float[][]::new);
-    float[][] newVectors = new float[oldVectors.length][];
+    Dataset dataset = Dataset.create(fieldData.getVectors().size(), fieldData.fieldInfo().getVectorDimension());
     for (int i = 0; i < oldVectors.length; i++) {
-      newVectors[i] = oldVectors[new2OldOrd[i]];
+      float[] vec = oldVectors[new2OldOrd[i]];
+      dataset.addVector(vec);
     }
-    writeFieldInternal(fieldData.fieldInfo(), newVectors);
+    writeFieldInternal(fieldData.fieldInfo(), dataset);
   }
 
-  private void writeFieldInternal(FieldInfo fieldInfo, float[][] vectors) throws IOException {
-    if (vectors.length == 0) {
+  private void writeFieldInternal(FieldInfo fieldInfo, Dataset dataset) throws IOException {
+    if (dataset.size() == 0) {
       writeEmpty(fieldInfo);
       return;
     }
@@ -321,7 +313,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
     // workaround for the minimum number of vectors for Cagra
     IndexType indexType =
-        this.indexType.cagra() && vectors.length < MIN_CAGRA_INDEX_SIZE
+        this.indexType.cagra() && dataset.size() < MIN_CAGRA_INDEX_SIZE
             ? IndexType.BRUTE_FORCE
             : this.indexType;
 
@@ -330,7 +322,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       if (indexType.cagra()) {
         try {
           var cagraIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-          writeCagraIndex(cagraIndexOutputStream, vectors);
+          writeCagraIndex(cagraIndexOutputStream, dataset);
         } catch (Throwable t) {
           handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
           // workaround for cuVS issue
@@ -342,16 +334,16 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
       bruteForceIndexOffset = cuvsIndex.getFilePointer();
       if (indexType.bruteForce()) {
         var bruteForceIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-        writeBruteForceIndex(bruteForceIndexOutputStream, vectors);
+        writeBruteForceIndex(bruteForceIndexOutputStream, dataset);
         bruteForceIndexLength = cuvsIndex.getFilePointer() - bruteForceIndexOffset;
       }
 
       hnswIndexOffset = cuvsIndex.getFilePointer();
       if (indexType.hnsw()) {
         var hnswIndexOutputStream = new IndexOutputOutputStream(cuvsIndex);
-        if (vectors.length > MIN_CAGRA_INDEX_SIZE) {
+        if (dataset.size() > MIN_CAGRA_INDEX_SIZE) {
           try {
-            writeHNSWIndex(hnswIndexOutputStream, vectors);
+            writeHNSWIndex(hnswIndexOutputStream, dataset);
           } catch (Throwable t) {
             handleThrowableWithIgnore(t, CANNOT_GENERATE_CAGRA);
           }
@@ -370,7 +362,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
       writeMeta(
           fieldInfo,
-          vectors.length,
+          dataset.size(),
           cagraIndexOffset,
           cagraIndexLength,
           bruteForceIndexOffset,
@@ -435,14 +427,15 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   }
 
   /** Copies the vector values into dst. Returns the actual number of vectors copied. */
-  private static int getVectorData(FloatVectorValues floatVectorValues, float[][] dst)
+  private static int getVectorData(FloatVectorValues floatVectorValues, Dataset dataset)
       throws IOException {
     DocsWithFieldSet docsWithField = new DocsWithFieldSet();
     int count = 0;
     KnnVectorValues.DocIndexIterator iter = floatVectorValues.iterator();
     for (int docV = iter.nextDoc(); docV != NO_MORE_DOCS; docV = iter.nextDoc()) {
       assert iter.index() == count;
-      dst[iter.index()] = floatVectorValues.vectorValue(iter.index());
+      //dst[iter.index()] = floatVectorValues.vectorValue(iter.index());
+      dataset.addVector(floatVectorValues.vectorValue(iter.index())); // is this correct?
       docsWithField.add(docV);
       count++;
     }
@@ -460,12 +453,10 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
                 KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
           };
 
-      float[][] vectors = new float[mergedVectorValues.size()][mergedVectorValues.dimension()];
-      int ret = getVectorData(mergedVectorValues, vectors);
-      if (ret < vectors.length) {
-        vectors = ArrayUtil.copyOfSubArray(vectors, 0, ret);
-      }
-      writeFieldInternal(fieldInfo, vectors);
+      // Also will be replaced with the cuVS merge api
+      Dataset dataset = Dataset.create(mergedVectorValues.size(), mergedVectorValues.dimension());
+      getVectorData(mergedVectorValues, dataset); // nocommit handle the case when returned value is less than dataset.size() 
+      writeFieldInternal(fieldInfo, dataset);
     } catch (Throwable t) {
       handleThrowable(t);
     }

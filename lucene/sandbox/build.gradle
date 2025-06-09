@@ -20,7 +20,9 @@ apply plugin: 'java-library'
 description = 'Various third party contributions and new ideas'
 
 repositories {
-  mavenLocal()
+    maven {         
+        url = uri("https://maven.searchscale.com/snapshots")
+    }
 }
 
 

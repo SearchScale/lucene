@@ -22,8 +22,10 @@ allprojects {
 
   // Repositories to fetch dependencies from.
   repositories {
+    maven {         
+        url = uri("https://maven.searchscale.com/snapshots")
+    }
     mavenCentral()
-    mavenLocal()
   }
 
   // Artifacts will have names after full gradle project path
