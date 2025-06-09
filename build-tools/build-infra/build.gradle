@@ -22,8 +22,10 @@ plugins {
 }
 
 repositories {
-  mavenLocal()
-  mavenCentral()
+    maven {         
+        url = uri("https://maven.searchscale.com/snapshots")
+    }
+    mavenCentral()
 }
 
 group = "org.apache"

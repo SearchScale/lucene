@@ -16,10 +16,9 @@
  */
 package org.apache.lucene.sandbox.vectorsearch;
 
-import com.nvidia.cuvs.CuVSResources;
-import com.nvidia.cuvs.LibraryException;
 import java.io.IOException;
 import java.util.logging.Logger;
+
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
@@ -27,7 +26,9 @@ import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.sandbox.vectorsearch.CuVSVectorsWriter.IndexType;
-import org.apache.lucene.sandbox.vectorsearch.CuVSVectorsWriter.MergeStrategy;
+
+import com.nvidia.cuvs.CuVSResources;
+import com.nvidia.cuvs.LibraryException;
 
 /** CuVS based KnnVectorsFormat for GPU acceleration */
 public class CuVSVectorsFormat extends KnnVectorsFormat {
@@ -46,7 +47,6 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   public static final int DEFAULT_WRITER_THREADS = 32;
   public static final int DEFAULT_INTERMEDIATE_GRAPH_DEGREE = 128;
   public static final int DEFAULT_GRAPH_DEGREE = 64;
-  public static final MergeStrategy DEFAULT_MERGE_STRATEGY = MergeStrategy.NON_TRIVIAL_MERGE;
   public static final IndexType DEFAULT_INDEX_TYPE = IndexType.CAGRA;
 
   static CuVSResources resources = cuVSResourcesOrNull();
@@ -59,7 +59,6 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
   final int cuvsWriterThreads;
   final int intGraphDegree;
   final int graphDegree;
-  final MergeStrategy mergeStrategy;
   final CuVSVectorsWriter.IndexType indexType; // the index type to build, when writing
 
   /**
@@ -72,7 +71,6 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
         DEFAULT_WRITER_THREADS,
         DEFAULT_INTERMEDIATE_GRAPH_DEGREE,
         DEFAULT_GRAPH_DEGREE,
-        DEFAULT_MERGE_STRATEGY,
         DEFAULT_INDEX_TYPE);
   }
 
@@ -85,10 +83,8 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
       int cuvsWriterThreads,
       int intGraphDegree,
       int graphDegree,
-      MergeStrategy mergeStrategy,
       IndexType indexType) {
     super("CuVSVectorsFormat");
-    this.mergeStrategy = mergeStrategy;
     this.cuvsWriterThreads = cuvsWriterThreads;
     this.intGraphDegree = intGraphDegree;
     this.graphDegree = graphDegree;
@@ -130,7 +126,6 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
         cuvsWriterThreads,
         intGraphDegree,
         graphDegree,
-        mergeStrategy,
         indexType,
         resources,
         flatWriter);
@@ -154,7 +149,6 @@ public class CuVSVectorsFormat extends KnnVectorsFormat {
     sb.append("cuvsWriterThreads=").append(cuvsWriterThreads);
     sb.append("intGraphDegree=").append(intGraphDegree);
     sb.append("graphDegree=").append(graphDegree);
-    sb.append("mergeStrategy=").append(mergeStrategy);
     sb.append("resources=").append(resources);
     sb.append(")");
     return sb.toString();
