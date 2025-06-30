@@ -76,7 +76,7 @@ public final class OnHeapHnswGraph extends HnswGraph implements Accountable {
    *     while passing in a non-negative value will lock the whole graph and disable the graph from
    *     growing itself (you cannot add a node with id >= numNodes)
    */
-  OnHeapHnswGraph(int M, int numNodes) {
+  public OnHeapHnswGraph(int M, int numNodes) {
     this.entryNode = new AtomicReference<>(new EntryNode(-1, 1));
     // Neighbours' size on upper levels (nsize) and level 0 (nsize0)
     // We allocate extra space for neighbours, but then prune them to keep allowed maximum

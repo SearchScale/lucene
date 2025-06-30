@@ -561,7 +561,11 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
     private int node = 0;
     private final FlatFieldVectorsWriter<T> flatFieldVectorsWriter;
     private UpdateableRandomVectorScorer scorer;
+    private OnHeapHnswGraph customGraph = null;
 
+    public void setCustomGraph(OnHeapHnswGraph customGraph) {
+      this.customGraph = customGraph;
+    }
     @SuppressWarnings("unchecked")
     static FieldWriter<?> create(
         FlatVectorsScorer scorer,
@@ -649,6 +653,10 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
 
     OnHeapHnswGraph getGraph() throws IOException {
       assert flatFieldVectorsWriter.isFinished();
+      if (customGraph != null) {
+        return customGraph;
+      }
+
       if (node > 0) {
         return hnswGraphBuilder.getCompletedGraph();
       } else {
