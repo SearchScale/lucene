@@ -79,6 +79,18 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
 
   private final List<FieldWriter<?>> fields = new ArrayList<>();
   private boolean finished;
+  
+  // Static reference for graph injection from external code
+  private static volatile Lucene99HnswVectorsWriter currentWriter = null;
+  
+  private void registerForGraphInjection() {
+    currentWriter = this;
+    System.out.println("📝 Registered HNSW writer for graph injection");
+  }
+  
+  public static Lucene99HnswVectorsWriter getCurrentWriter() {
+    return currentWriter;
+  }
 
   public Lucene99HnswVectorsWriter(
       SegmentWriteState state,
@@ -94,6 +106,9 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
     this.numMergeWorkers = numMergeWorkers;
     this.mergeExec = mergeExec;
     segmentWriteState = state;
+    
+    // Register this writer for potential graph injection
+    registerForGraphInjection();
     String metaFileName =
         IndexFileNames.segmentFileName(
             state.segmentInfo.name, state.segmentSuffix, Lucene99HnswVectorsFormat.META_EXTENSION);
@@ -138,6 +153,33 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
             segmentWriteState.infoStream);
     fields.add(newField);
     return newField;
+  }
+
+  /**
+   * Get the FieldWriter for a specific field to allow setting custom graph
+   */
+  public FieldWriter<?> getFieldWriter(String fieldName) {
+    for (FieldWriter<?> field : fields) {
+      if (field.fieldInfo.name.equals(fieldName)) {
+        return field;
+      }
+    }
+    return null;
+  }
+  
+  /**
+   * Public access to FieldWriter class for external injection
+   */
+  public static class PublicFieldWriter<T> {
+    private final FieldWriter<T> fieldWriter;
+    
+    public PublicFieldWriter(FieldWriter<T> fieldWriter) {
+      this.fieldWriter = fieldWriter;
+    }
+    
+    public void setCustomGraph(OnHeapHnswGraph customGraph) {
+      fieldWriter.setCustomGraph(customGraph);
+    }
   }
 
   @Override
@@ -550,7 +592,10 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
     throw new IllegalArgumentException("invalid distance function: " + func);
   }
 
-  private static class FieldWriter<T> extends KnnFieldVectorsWriter<T> {
+  /**
+   * Field writer for HNSW vector fields that supports custom graph injection.
+   */
+  public static class FieldWriter<T> extends KnnFieldVectorsWriter<T> {
 
     private static final long SHALLOW_SIZE =
         RamUsageEstimator.shallowSizeOfInstance(FieldWriter.class);
@@ -562,9 +607,11 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
     private final FlatFieldVectorsWriter<T> flatFieldVectorsWriter;
     private UpdateableRandomVectorScorer scorer;
     private OnHeapHnswGraph customGraph = null;
+    private boolean useCustomGraph = false;
 
     public void setCustomGraph(OnHeapHnswGraph customGraph) {
       this.customGraph = customGraph;
+      this.useCustomGraph = true;
     }
     @SuppressWarnings("unchecked")
     static FieldWriter<?> create(
@@ -636,8 +683,16 @@ public final class Lucene99HnswVectorsWriter extends KnnVectorsWriter {
                 + "\" appears more than once in this document (only one value is allowed per field)");
       }
       flatFieldVectorsWriter.addValue(docID, vectorValue);
-      scorer.setScoringOrdinal(node);
-      hnswGraphBuilder.addGraphNode(node, scorer);
+      
+      // Only build graph incrementally if not using a custom pre-built graph
+      if (!useCustomGraph) {
+        System.out.println("🔨 HnswGraphBuilder.addGraphNode() called for node " + node + " (NORMAL PATH)");
+        scorer.setScoringOrdinal(node);
+        hnswGraphBuilder.addGraphNode(node, scorer);
+      } else {
+        System.out.println("⚡ Skipping graph building for node " + node + " (CUSTOM GRAPH)");
+      }
+      
       node++;
       lastDocID = docID;
     }
