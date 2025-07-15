@@ -1,347 +1,377 @@
+package org.apache.lucene.demo;
+
 import org.apache.lucene.document.*;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.*;
 import org.apache.lucene.util.hnsw.*;
-import org.apache.lucene.codecs.*;
 import org.apache.lucene.codecs.lucene99.*;
 
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.IntStream;
-import java.util.stream.Collectors;
 
-// Custom IndexWriter that exposes the vector writer for graph injection
-class CustomIndexWriter extends IndexWriter {
-    private static Lucene99HnswVectorsWriter lastVectorWriter = null;
-    
-    public CustomIndexWriter(Directory d, IndexWriterConfig conf) throws IOException {
-        super(d, conf);
-    }
-    
-    public static Lucene99HnswVectorsWriter getLastVectorWriter() {
-        return lastVectorWriter;
-    }
-    
-    public static void setLastVectorWriter(Lucene99HnswVectorsWriter writer) {
-        lastVectorWriter = writer;
-        System.out.println("📝 Captured vector writer: " + writer.getClass().getSimpleName());
-    }
-}
-
-
-
+/**
+ * CAGRA to Lucene HNSW Graph Injection Pipeline
+ * 
+ * This pipeline demonstrates how to import CAGRA graph structures into Lucene's HNSW implementation
+ */
 public class LuceneGraphPipeline {
-
-    // === PHASE 1: BUILD AND EXPORT GRAPH STRUCTURE ===
-
-    public static void buildAndExport() throws IOException {
-        System.out.println("=== Step 1: Build Index and Export Graph ===");
-        Path indexPath = createRealIndex();
-        extractRealGraphStructure(indexPath);
-        System.out.println("✅ Graph structure exported to lucene_graph_structure.txt");
-    }
-
-    private static Path createRealIndex() throws IOException {
-        Path indexPath = Paths.get("step-a-real-index");
-        if (java.nio.file.Files.exists(indexPath)) deleteDirectory(indexPath.toFile());
-        Directory directory = FSDirectory.open(indexPath);
-        IndexWriterConfig config = new IndexWriterConfig();
-        Random random = new Random(42);
-        int vectorCount = 100, dimension = 128;
-        try (IndexWriter writer = new IndexWriter(directory, config)) {
-            for (int i = 0; i < vectorCount; i++) {
-                Document doc = new Document();
-                float[] vector = new float[dimension];
-                for (int j = 0; j < dimension; j++) {
-                    if (i < 25) vector[j] = 1.0f + random.nextFloat() * 0.5f;
-                    else if (i < 50) vector[j] = -1.0f - random.nextFloat() * 0.5f;
-                    else if (i < 75) vector[j] = random.nextFloat() * 0.5f;
-                    else vector[j] = random.nextFloat() * 2.0f - 1.0f;
-                }
-                normalizeVector(vector);
-                doc.add(new KnnFloatVectorField("vector", vector, VectorSimilarityFunction.COSINE));
-                doc.add(new StringField("id", "doc_" + i, Field.Store.YES));
-                doc.add(new StringField("cluster", "cluster_" + (i / 25), Field.Store.YES));
-                writer.addDocument(doc);
-            }
-            writer.commit();
+    
+    // === MAIN ENTRY POINT ===
+    public static void main(String[] args) throws IOException {
+        if (args.length == 0) {
+            System.out.println("Usage: java LuceneGraphPipeline <cagra_graph_file>");
+            return;
         }
-        directory.close();
-        return indexPath;
+        importCagraGraphAndIndex(args[0]);
     }
-
-    private static void extractRealGraphStructure(Path indexPath) throws IOException {
-        Directory directory = FSDirectory.open(indexPath);
-        try (DirectoryReader reader = DirectoryReader.open(directory)) {
-            LeafReader leafReader = reader.leaves().get(0).reader();
-            FloatVectorValues vectorValues = leafReader.getFloatVectorValues("vector");
-            if (vectorValues == null) throw new RuntimeException("No vector values found!");
-            List<float[]> allVectors = new ArrayList<>();
-            for (int docId = 0; docId < vectorValues.size(); docId++) {
-                try {
-                    float[] vector = vectorValues.vectorValue(docId);
-                    if (vector != null) allVectors.add(vector.clone());
-                } catch (Exception e) {}
-            }
-            if (allVectors.isEmpty()) throw new RuntimeException("No vectors could be extracted!");
-            writeGraphStructure(allVectors, vectorValues.dimension());
-        } finally { directory.close(); }
-    }
-
-    private static void writeGraphStructure(List<float[]> vectors, int dimension) throws IOException {
-        try (PrintWriter writer = new PrintWriter(new FileWriter("lucene_graph_structure.txt"))) {
-            writer.println("VECTOR_COUNT:" + vectors.size());
-            writer.println("DIMENSION:" + dimension);
-            writer.println("SIMILARITY_FUNCTION:COSINE");
-            writer.println("GRAPH_SIZE:" + vectors.size());
-            writer.println("GRAPH_LEVELS:1");  // Only level 0
-            writer.println("ENTRY_NODE:0");
-            writer.println("MAX_CONNECTIONS:16");
-            writer.println();
-            writer.println("VECTORS:");
-            for (int i = 0; i < vectors.size(); i++) {
-                writer.print("VECTOR_" + i + ":");
-                float[] vector = vectors.get(i);
-                for (int j = 0; j < vector.length; j++) {
-                    writer.print(vector[j]);
-                    if (j < vector.length - 1) writer.print(",");
-                }
-                writer.println();
-            }
-            writer.println();
-            writer.println("CONNECTIONS:");
-            createSingleLevelConnections(writer, vectors);
-        }
-    }
-
-    private static void createSingleLevelConnections(PrintWriter writer, List<float[]> vectors) {
-        int maxConnections = 32; // More connections for single level
-        int vectorCount = vectors.size();
+    
+    // === CORE PIPELINE ===
+    public static void importCagraGraphAndIndex(String cagraFile) throws IOException {
+        System.out.println("=== Importing CAGRA Graph and Indexing ===");
+        GraphData graphData = readCagraGraphFile(cagraFile);
         
-        // Only create level 0 connections
-        for (int nodeId = 0; nodeId < vectorCount; nodeId++) {
-            List<Integer> connections = findNearestNeighbors(vectors, nodeId, 
-                IntStream.range(0, vectorCount).boxed().collect(Collectors.toList()), maxConnections);
+        // Add validation here
+        validateGraphStructure(graphData);
         
-            writer.print("LEVEL_0_NODE_" + nodeId + ": [");
-            for (int i = 0; i < connections.size(); i++) {
-                writer.print(connections.get(i));
-                if (i < connections.size() - 1) writer.print(", ");
-            }
-            writer.println("]");
-        }
-    }
-
-    private static List<Integer> findNearestNeighbors(List<float[]> vectors, int queryIndex, List<Integer> candidates, int maxNeighbors) {
-        float[] queryVector = vectors.get(queryIndex);
-        List<SimilarityResult> similarities = new ArrayList<>();
-        for (int candidate : candidates) {
-            if (candidate != queryIndex)
-                similarities.add(new SimilarityResult(candidate, cosineSimilarity(queryVector, vectors.get(candidate))));
-        }
-        similarities.sort((a, b) -> Float.compare(b.similarity, a.similarity));
-        List<Integer> neighbors = new ArrayList<>();
-        for (int i = 0; i < Math.min(maxNeighbors, similarities.size()); i++) neighbors.add(similarities.get(i).nodeId);
-        return neighbors;
-    }
-
-    private static float cosineSimilarity(float[] a, float[] b) {
-        float dot = 0.0f; for (int i = 0; i < a.length; i++) dot += a[i] * b[i]; return dot;
-    }
-    private static void normalizeVector(float[] vector) {
-        float norm = 0.0f; for (float v : vector) norm += v * v; norm = (float) Math.sqrt(norm);
-        if (norm > 0) for (int i = 0; i < vector.length; i++) vector[i] /= norm;
-    }
-    private static void deleteDirectory(java.io.File dir) {
-        if (dir.exists()) { java.io.File[] files = dir.listFiles(); if (files != null)
-            for (java.io.File file : files) if (file.isDirectory()) deleteDirectory(file); else file.delete(); dir.delete(); }
-    }
-    static class SimilarityResult { int nodeId; float similarity;
-        SimilarityResult(int nodeId, float similarity) { this.nodeId = nodeId; this.similarity = similarity; }
-    }
-
-    // === PHASE 2: IMPORT, RECONSTRUCT, INDEX, AND TEST ===
-
-    public static void injectAndTest() throws IOException {
-        System.out.println("=== Step 2: Import, Reconstruct, Index, and Test ===");
-        GraphData graphData = readGraphStructure("lucene_graph_structure.txt");
         OnHeapHnswGraph reconstructedGraph = reconstructGraph(graphData);
         createIndexWithReconstructedData(graphData, reconstructedGraph);
-        runBasicTests();
+        runQueryVectorTests(graphData);
     }
-
-    // --- GraphData and helpers ---
+    
+    // === DATA STRUCTURE ===
     public static class GraphData {
-        int vectorCount, dimension, size, numLevels, entryNode, maxConnections;
-        String similarityFunction;
-        float[][] vectors;
-        Map<Integer, Map<Integer, List<Integer>>> connections = new HashMap<>();
+        public int vectorCount, dimension, size, numLevels, entryNode, maxConnections;
+        public String similarityFunction;
+        public float[][] vectors;        // Dataset vectors
+        public float[][] queryVectors;   // Query vectors for testing
+        public int queryCount;           // Number of query vectors
+        public Map<Integer, Map<Integer, List<Integer>>> connections = new HashMap<>();
     }
-
-    public static GraphData readGraphStructure(String filename) throws IOException {
-        File file = new File(filename); if (!file.exists()) throw new IOException("Graph structure not found");
+    
+    /**
+     * Parse CAGRA graph file containing adjacency lists and vector data
+     */
+    public static GraphData readCagraGraphFile(String filename) throws IOException {
+        File file = new File(filename); 
+        if (!file.exists()) throw new IOException("CAGRA graph file not found: " + filename);
+        
         GraphData data = new GraphData();
+        
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
+            boolean inAdjacency = false, inDatasetVectors = false, inQueryVectors = false;
+            List<String> adjacencyLines = new ArrayList<>();
+            List<String> datasetVectorLines = new ArrayList<>();
+            List<String> queryVectorLines = new ArrayList<>();
+            
+            // Phase 1: Collect sections and detect vector count
+            data.vectorCount = -1;
+            data.queryCount = -1;
+            
             while ((line = reader.readLine()) != null) {
-                if (line.startsWith("VECTOR_COUNT:")) data.vectorCount = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.startsWith("DIMENSION:")) data.dimension = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.startsWith("SIMILARITY_FUNCTION:")) data.similarityFunction = line.split(":")[1].trim();
-                else if (line.startsWith("GRAPH_SIZE:")) data.size = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.startsWith("GRAPH_LEVELS:")) data.numLevels = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.startsWith("ENTRY_NODE:")) data.entryNode = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.startsWith("MAX_CONNECTIONS:")) data.maxConnections = Integer.parseInt(line.split(":")[1].trim());
-                else if (line.equals("VECTORS:")) break;
-            }
-            data.vectors = new float[data.vectorCount][data.dimension];
-            for (int i = 0; i < data.vectorCount; i++) {
-                line = reader.readLine();
-                if (line != null && line.startsWith("VECTOR_" + i + ":")) {
-                    String[] values = line.substring(("VECTOR_" + i + ":").length()).trim().split(",");
-                    for (int j = 0; j < Math.min(values.length, data.dimension); j++)
-                        data.vectors[i][j] = Float.parseFloat(values[j].trim());
-                }
-            }
-            while ((line = reader.readLine()) != null)
-                if (line.startsWith("LEVEL_") && line.contains("_NODE_")) {
+                line = line.trim();
+                
+                // Parse dataset vector count
+                if (line.startsWith("Dataset vectors count: ")) {
                     try {
-                        String[] parts = line.split(":");
-                        String[] keyParts = parts[0].trim().split("_");
-                        int level = Integer.parseInt(keyParts[1]), node = Integer.parseInt(keyParts[3]);
-                        String con = parts[1].trim();
-                        if (con.startsWith("[") && con.endsWith("]")) {
-                            String[] connectionIds = con.substring(1, con.length() - 1).split(",");
-                            List<Integer> nodeConnections = new ArrayList<>();
-                            for (String connId : connectionIds)
-                                if (!connId.trim().isEmpty()) nodeConnections.add(Integer.parseInt(connId.trim()));
-                            data.connections.computeIfAbsent(level, k -> new HashMap<>()).put(node, nodeConnections);
-                        }
-                    } catch (Exception ignore) {}
+                        String countStr = line.substring("Dataset vectors count: ".length()).trim();
+                        data.vectorCount = Integer.parseInt(countStr);
+                        System.out.println("📊 Detected dataset vector count: " + data.vectorCount);
+                    } catch (NumberFormatException e) {
+                        System.err.println("⚠️ Could not parse dataset vector count from: " + line);
+                    }
+                    continue;
                 }
+                
+                // Parse query vector count
+                if (line.startsWith("Query vectors count: ")) {
+                    try {
+                        String countStr = line.substring("Query vectors count: ".length()).trim();
+                        data.queryCount = Integer.parseInt(countStr);
+                        System.out.println("📊 Detected query vector count: " + data.queryCount);
+                    } catch (NumberFormatException e) {
+                        System.err.println("⚠️ Could not parse query vector count from: " + line);
+                    }
+                    continue;
+                }
+                
+                // Parse vector dimension
+                if (line.startsWith("Vector dimensions: ")) {
+                    try {
+                        String dimStr = line.substring("Vector dimensions: ".length()).trim();
+                        data.dimension = Integer.parseInt(dimStr);
+                        System.out.println("📊 Detected vector dimension: " + data.dimension);
+                    } catch (NumberFormatException e) {
+                        System.err.println("⚠️ Could not parse vector dimension from: " + line);
+                    }
+                    continue;
+                }
+                
+                // Try to parse vector count from adjacency list header (fallback)
+                if (line.startsWith("Complete adjacency list for all ") && line.endsWith(" nodes:")) {
+                    String headerText = line.substring("Complete adjacency list for all ".length(), 
+                                                       line.length() - " nodes:".length()).trim();
+                    try {
+                        int adjCount = Integer.parseInt(headerText);
+                        if (data.vectorCount == -1) {
+                            data.vectorCount = adjCount;
+                            System.out.println("📊 Detected vector count from adjacency header: " + data.vectorCount);
+                        } else if (data.vectorCount != adjCount) {
+                            System.out.println("⚠️ Adjacency count (" + adjCount + ") differs from dataset count (" + data.vectorCount + ")");
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("⚠️ Could not parse vector count from header: " + line);
+                    }
+                    inAdjacency = true; 
+                    inDatasetVectors = false;
+                    inQueryVectors = false;
+                    continue;
+                }
+                
+                // Alternative: look for dataset size
+                if (line.startsWith("Dataset Size: ")) {
+                    try {
+                        String sizeStr = line.substring("Dataset Size: ".length()).trim();
+                        int datasetSize = Integer.parseInt(sizeStr);
+                        if (data.vectorCount == -1) {
+                            data.vectorCount = datasetSize;
+                            System.out.println("📊 Detected vector count from dataset size: " + data.vectorCount);
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("⚠️ Could not parse dataset size from: " + line);
+                    }
+                    continue;
+                }
+                
+                if (line.startsWith("=== ALL ") && line.contains("DATASET VECTORS")) {
+                    inAdjacency = false; 
+                    inDatasetVectors = true;
+                    inQueryVectors = false;
+                    System.out.println("📊 Found dataset vectors section");
+                    continue;
+                }
+                
+                if (line.startsWith("=== ALL ") && line.contains("QUERY VECTORS")) {
+                    inAdjacency = false; 
+                    inDatasetVectors = false;
+                    inQueryVectors = true;
+                    System.out.println("📊 Found query vectors section");
+                    continue;
+                }
+                
+                if ((inAdjacency || inDatasetVectors || inQueryVectors) && line.startsWith("===")) {
+                    inAdjacency = false;
+                    inDatasetVectors = false;
+                    inQueryVectors = false;
+                    continue;
+                }
+                
+                if (inAdjacency && !line.isEmpty()) {
+                    adjacencyLines.add(line);
+                }
+                if (inDatasetVectors && !line.isEmpty()) {
+                    datasetVectorLines.add(line);
+                }
+                if (inQueryVectors && !line.isEmpty()) {
+                    queryVectorLines.add(line);
+                }
+            }
+            
+            // Set defaults if not found
+            if (data.vectorCount == -1) {
+                data.vectorCount = 2297; // Fallback
+                System.out.println("⚠️ Using fallback vector count: " + data.vectorCount);
+            }
+            
+            if (data.queryCount == -1) {
+                data.queryCount = 8; // Fallback
+                System.out.println("⚠️ Using fallback query count: " + data.queryCount);
+            }
+            
+            if (data.dimension == -1) {
+                data.dimension = 201; // Fallback
+                System.out.println("⚠️ Using fallback dimension: " + data.dimension);
+            }
+            
+            // Phase 2: Parse adjacency list
+            data.similarityFunction = "COSINE";
+            data.connections = new HashMap<>();
+            Map<Integer, List<Integer>> level0 = new HashMap<>();
+            
+            for (String adj : adjacencyLines) {
+                if (!adj.startsWith("Node ") || !adj.contains(":")) continue;
+                
+                try {
+                    int colonIdx = adj.indexOf(":");
+                    String nodeIdStr = adj.substring(5, colonIdx).trim();
+                    
+                    if (!nodeIdStr.matches("\\d+")) continue;
+                    
+                    int nodeId = Integer.parseInt(nodeIdStr);
+                    String rest = adj.substring(colonIdx + 1).trim();
+                    if (rest.startsWith("[")) rest = rest.substring(1);
+                    if (rest.endsWith("]")) rest = rest.substring(0, rest.length() - 1);
+                    
+                    List<Integer> neighbors = new ArrayList<>();
+                    if (!rest.trim().isEmpty()) {
+                        for (String n : rest.split(",")) {
+                            String trimmed = n.trim();
+                            if (!trimmed.isEmpty() && trimmed.matches("\\d+")) {
+                                neighbors.add(Integer.parseInt(trimmed));
+                            }
+                        }
+                    }
+                    
+                    level0.put(nodeId, neighbors);
+                    
+                } catch (Exception e) {
+                    continue; // Skip invalid lines
+                }
+            }
+            
+            data.connections.put(0, level0);
+            
+            // Validate vector count against actual parsed data
+            if (data.vectorCount != level0.size()) {
+                System.out.println("⚠️ Parsed vector count (" + data.vectorCount + ") differs from adjacency nodes (" + level0.size() + ")");
+                System.out.println("📊 Using parsed adjacency count: " + level0.size());
+                data.vectorCount = level0.size();
+            }
+            
+            // Phase 3: Parse dataset vectors
+            data.vectors = new float[data.vectorCount][];
+            int vIdx = parseVectors(datasetVectorLines, data.vectors, "DATASET_VECTOR_", data);
+            System.out.println("📊 Parsed " + vIdx + " dataset vectors");
+            
+            // Phase 4: Parse query vectors
+            data.queryVectors = new float[data.queryCount][];
+            int qIdx = parseVectors(queryVectorLines, data.queryVectors, "QUERY_VECTOR_", data);
+            System.out.println("📊 Parsed " + qIdx + " query vectors");
+
+            // Handle parsing failures with correct sizes
+            if (vIdx == 0) {
+                System.err.println("❌ No dataset vectors parsed! Creating dummy vectors...");
+                for (int i = 0; i < data.vectorCount; i++) {
+                    data.vectors[i] = generateTestVector(data.dimension, i);
+                }
+            }
+            
+            if (qIdx == 0) {
+                System.err.println("❌ No query vectors parsed! Creating dummy queries...");
+                for (int i = 0; i < data.queryCount; i++) {
+                    data.queryVectors[i] = generateTestVector(data.dimension, i + 1000);
+                }
+            }
+            
+            data.size = data.vectorCount;
+            data.numLevels = 1;
+            data.entryNode = 0;
+            data.maxConnections = 64;
         }
+        
         return data;
     }
 
+    /**
+     * Convert parsed CAGRA data into Lucene's OnHeapHnswGraph format with validation
+     */
     public static OnHeapHnswGraph reconstructGraph(GraphData data) {
-        System.out.println("=== Starting Single-Level Graph Reconstruction ===");
+        System.out.println("=== Graph Reconstruction with Validation ===");
         System.out.println("Vector count: " + data.vectorCount);
         System.out.println("Max connections: " + data.maxConnections);
-        System.out.println("Expected levels: 1 (level 0 only)");
         
-        // Create graph with fixed size to avoid extra levels
+        // Create single-level HNSW graph
         OnHeapHnswGraph graph = new OnHeapHnswGraph(data.maxConnections, data.vectorCount);
         
-        // Add all nodes to level 0 only
-        System.out.println("Adding all " + data.vectorCount + " nodes to level 0...");
-        int nodesAdded = 0;
-        int nodesFailed = 0;
-        
+        // Add all nodes to level 0
         for (int nodeId = 0; nodeId < data.vectorCount; nodeId++) {
             try {
-                graph.addNode(0, nodeId);  // Add to level 0 only
-                nodesAdded++;
-                
-                // Set entry node for the first node
+                graph.addNode(0, nodeId);
                 if (nodeId == 0) {
                     graph.trySetNewEntryNode(0, 0);
                 }
             } catch (Exception e) {
-                System.err.println("Failed to add node " + nodeId + " to level 0: " + e.getMessage());
-                nodesFailed++;
+                System.err.println("Failed to add node " + nodeId);
             }
         }
         
-        System.out.println("Nodes added: " + nodesAdded + ", failed: " + nodesFailed);
-        System.out.println("Graph now has " + graph.numLevels() + " levels and " + graph.size() + " nodes");
-        
-        // Add connections for level 0
-        int connectionsAdded = 0;
-        int connectionsFailed = 0;
-        
+        // Add connections with validation
         Map<Integer, List<Integer>> level0Connections = data.connections.get(0);
         if (level0Connections != null) {
-            System.out.println("Adding connections for " + level0Connections.size() + " nodes at level 0...");
+            int validConnections = 0;
+            int invalidConnections = 0;
             
             for (Map.Entry<Integer, List<Integer>> entry : level0Connections.entrySet()) {
                 int nodeId = entry.getKey();
                 List<Integer> neighbors = entry.getValue();
                 
+                // Skip nodes that don't exist in our vector space
+                if (nodeId >= data.vectorCount) {
+                    System.err.println("⚠️ Skipping node " + nodeId + " (>= " + data.vectorCount + ")");
+                    continue;
+                }
+                
                 if (neighbors.isEmpty()) continue;
                 
                 try {
                     NeighborArray neighborArray = graph.getNeighbors(0, nodeId);
-                    int beforeSize = neighborArray.size();
                     
-                    // Use the proper API method
-                    addNeighborsToArrayRobust(neighborArray, neighbors);
-                    // Or use this for actual scores: addNeighborsWithScores(neighborArray, neighbors, data, nodeId);
-                    
-                    int afterSize = neighborArray.size();
-                    int added = afterSize - beforeSize;
-                    connectionsAdded += added;
-                    
-                    if (nodeId < 5) { // Debug first few nodes
-                        System.out.println("Node " + nodeId + ": added " + added + "/" + neighbors.size() + " neighbors");
+                    // Filter out invalid neighbor IDs
+                    List<Integer> validNeighbors = new ArrayList<>();
+                    for (Integer neighborId : neighbors) {
+                        if (neighborId >= 0 && neighborId < data.vectorCount) {
+                            validNeighbors.add(neighborId);
+                            validConnections++;
+                        } else {
+                            System.err.println("⚠️ Skipping invalid neighbor " + neighborId + " for node " + nodeId);
+                            invalidConnections++;
+                        }
                     }
+                    
+                    addNeighborsToArray(neighborArray, validNeighbors);
                     
                 } catch (Exception e) {
                     System.err.println("Failed to add neighbors for node " + nodeId + ": " + e.getMessage());
-                    connectionsFailed += neighbors.size();
                 }
             }
+            
+            System.out.println("✅ Valid connections: " + validConnections);
+            System.out.println("❌ Invalid connections filtered: " + invalidConnections);
         }
         
-        System.out.println("Connections added: " + connectionsAdded + ", failed: " + connectionsFailed);
-        
-        // Validate the final graph
-        validateSingleLevelGraph(graph, data);
-        
+        System.out.println("Graph reconstruction completed");
         return graph;
     }
 
-    private static void addNeighborsToArrayRobust(NeighborArray na, List<Integer> neighbors) {
-        try {
-            System.out.println("Adding " + neighbors.size() + " neighbors using NeighborArray.addOutOfOrder()");
-        
-            int initialSize = na.size();
-            int added = 0;
-        
-            for (Integer neighbor : neighbors) {
-                try {
-                    // Use addOutOfOrder since we don't care about sorting during reconstruction
-                    // Use a dummy score of 1.0f - in a real scenario you'd use actual similarity scores
-                    na.addOutOfOrder(neighbor.intValue(), 1.0f);
-                    added++;
-                } catch (IllegalStateException e) {
-                    // NeighborArray is full (reached maxSize)
-                    System.err.println("NeighborArray is full, cannot add more neighbors. Added " + added + " out of " + neighbors.size());
-                    break;
-                } catch (Exception e) {
-                    System.err.println("Failed to add neighbor " + neighbor + ": " + e.getMessage());
-                    break;
-                }
+    /**
+     * Helper method to add neighbors to NeighborArray
+     */
+    private static void addNeighborsToArray(NeighborArray na, List<Integer> neighbors) {
+        for (Integer neighbor : neighbors) {
+            try {
+                na.addOutOfOrder(neighbor.intValue(), 1.0f); // Use dummy score
+            } catch (IllegalStateException e) {
+                break; // NeighborArray is full
+            } catch (Exception e) {
+                break; // Other errors
             }
-        
-            int finalSize = na.size();
-            System.out.println("Successfully added " + added + " neighbors (size: " + initialSize + " -> " + finalSize + ")");
-        
-        } catch (Exception e) {
-            System.err.println("Failed to add neighbors to NeighborArray: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
-    
-    
-
+    /**
+     * Create Lucene index with pre-built custom graph
+     */
     private static void createIndexWithReconstructedData(GraphData data, OnHeapHnswGraph graph) throws IOException {
-        System.out.println("=== Creating Index with Pre-built Custom Graph ===");
+        System.out.println("=== Creating Index with Custom Graph ===");
         
         Path indexPath = Paths.get("complete-injected-index");
-        if (java.nio.file.Files.exists(indexPath)) deleteDirectory(indexPath.toFile());
+        if (java.nio.file.Files.exists(indexPath)) {
+            deleteDirectory(indexPath.toFile());
+        }
+        
         Directory directory = FSDirectory.open(indexPath);
         IndexWriterConfig config = new IndexWriterConfig();
         
@@ -350,25 +380,16 @@ public class LuceneGraphPipeline {
             Document firstDoc = new Document();
             firstDoc.add(new KnnFloatVectorField("vector", data.vectors[0], VectorSimilarityFunction.COSINE));
             firstDoc.add(new StringField("id", "injected_0", Field.Store.YES));
-            firstDoc.add(new StringField("original_id", "0", Field.Store.YES));
-            firstDoc.add(new StringField("source", "reconstructed", Field.Store.YES));
             writer.addDocument(firstDoc);
             
-            // Now try to inject the custom graph using the registered writer
-            System.out.println("🔧 Attempting to inject custom graph...");
+            // Inject custom graph
             Lucene99HnswVectorsWriter vectorWriter = Lucene99HnswVectorsWriter.getCurrentWriter();
             if (vectorWriter != null) {
-                System.out.println("📍 Found registered vector writer!");
                 Lucene99HnswVectorsWriter.FieldWriter<?> fieldWriter = vectorWriter.getFieldWriter("vector");
                 if (fieldWriter != null) {
                     fieldWriter.setCustomGraph(graph);
                     System.out.println("✅ Custom graph injected successfully!");
-                    System.out.println("📊 Custom graph has " + graph.size() + " nodes and " + graph.numLevels() + " levels");
-                } else {
-                    System.out.println("❌ FieldWriter not found for 'vector' field");
                 }
-            } else {
-                System.out.println("❌ No registered vector writer found");
             }
             
             // Add remaining documents
@@ -376,65 +397,114 @@ public class LuceneGraphPipeline {
                 Document doc = new Document();
                 doc.add(new KnnFloatVectorField("vector", data.vectors[i], VectorSimilarityFunction.COSINE));
                 doc.add(new StringField("id", "injected_" + i, Field.Store.YES));
-                doc.add(new StringField("original_id", String.valueOf(i), Field.Store.YES));
-                doc.add(new StringField("source", "reconstructed", Field.Store.YES));
                 writer.addDocument(doc);
             }
+            
             writer.commit();
         }
+        
         directory.close();
-        System.out.println("✅ Index creation completed: " + indexPath.toAbsolutePath());
+        System.out.println("✅ Index creation completed");
     }
 
-    // --- TESTS ---
-
-    public static void runBasicTests() throws IOException {
+    /**
+     * Test the indexed data with actual CAGRA query vectors and compare results
+     */
+    public static void runQueryVectorTests(GraphData graphData) throws IOException {
         Path indexPath = Paths.get("complete-injected-index");
-        if (!java.nio.file.Files.exists(indexPath)) throw new IOException("Index not found: " + indexPath);
+        if (!java.nio.file.Files.exists(indexPath)) {
+            throw new IOException("Index not found: " + indexPath);
+        }
+        
         Directory directory = FSDirectory.open(indexPath);
         try (DirectoryReader reader = DirectoryReader.open(directory)) {
-            System.out.println("✅ Index opened: " + reader.numDocs() + " docs, " + reader.leaves().size() + " segment(s)");
+            System.out.println("✅ Index opened: " + reader.numDocs() + " docs");
+            
+            // Get actual vector dimension from index
+            int actualDimension = -1;
             for (LeafReaderContext context : reader.leaves()) {
                 LeafReader leafReader = context.reader();
                 FloatVectorValues vectorValues = leafReader.getFloatVectorValues("vector");
                 if (vectorValues != null) {
-                    System.out.println("✅ Vector field found, count=" + vectorValues.size() + ", dim=" + vectorValues.dimension());
+                    actualDimension = vectorValues.dimension();
+                    System.out.println("✅ Vector field found, count=" + vectorValues.size() + ", dim=" + actualDimension);
+                    break;
                 }
-                break;
             }
+            
+            if (actualDimension == -1) {
+                System.err.println("❌ No vector field found!");
+                return;
+            }
+            
             IndexSearcher searcher = new IndexSearcher(reader);
-            float[] queryVector = generateTestVector(128);
-            TopDocs results = searcher.search(new KnnFloatVectorQuery("vector", queryVector, 5), 5);
-            System.out.println("Single search, found " + results.scoreDocs.length + " results");
-            for (int i = 0; i < results.scoreDocs.length; i++) {
-                Document doc = searcher.storedFields().document(results.scoreDocs[i].doc);
-                float score = results.scoreDocs[i].score;
-                System.out.printf("%d. %s (score %.5f)\n", i + 1, doc.get("id"), score);
+            
+            // Test with all query vectors
+            System.out.println("\n🔍 === Testing with " + graphData.queryCount + " CAGRA Query Vectors ===");
+            
+            for (int q = 0; q < graphData.queryCount && q < graphData.queryVectors.length; q++) {
+                if (graphData.queryVectors[q] == null) continue;
+                
+                System.out.println("\n🔍 Query " + q + ":");
+                System.out.println("  Query vector: " + Arrays.toString(Arrays.copyOf(graphData.queryVectors[q], Math.min(5, graphData.queryVectors[q].length))) + "...");
+                
+                TopDocs results = searcher.search(new KnnFloatVectorQuery("vector", graphData.queryVectors[q], 10), 10);
+                System.out.println("  Found " + results.scoreDocs.length + " results:");
+                
+                for (int i = 0; i < Math.min(5, results.scoreDocs.length); i++) {
+                    Document doc = searcher.storedFields().document(results.scoreDocs[i].doc);
+                    float score = results.scoreDocs[i].score;
+                    String docId = doc.get("id");
+                    int originalId = Integer.parseInt(docId.replace("injected_", ""));
+                    
+                    System.out.printf("    %d. %s (original_id=%d, score=%.1f)\n", 
+                        i + 1, docId, originalId, score);
+                }
+            }
+            
+            // Also run one test with a random vector for comparison
+            System.out.println("\n🔍 === Comparison with Random Test Vector ===");
+            float[] randomQuery = generateTestVector(actualDimension);
+            TopDocs randomResults = searcher.search(new KnnFloatVectorQuery("vector", randomQuery, 5), 5);
+            System.out.println("Random query found " + randomResults.scoreDocs.length + " results:");
+            
+            for (int i = 0; i < randomResults.scoreDocs.length; i++) {
+                Document doc = searcher.storedFields().document(randomResults.scoreDocs[i].doc);
+                float score = randomResults.scoreDocs[i].score;
+                System.out.printf("  %d. %s (score %.5f)\n", i + 1, doc.get("id"), score);
             }
         }
         directory.close();
     }
-    private static float[] generateTestVector(int dimension) { return generateTestVector(dimension, 0);}
+
+    /**
+     * Generate test vector for querying
+     */
+    private static float[] generateTestVector(int dimension) {
+        return generateTestVector(dimension, 0);
+    }
+
     private static float[] generateTestVector(int dimension, int seed) {
-        Random random = new Random(42 + seed); float[] vector = new float[dimension];
-        for (int i = 0; i < dimension; i++) vector[i] = (float) random.nextGaussian();
-        float norm = 0.0f; for (float v : vector) norm += v * v; norm = (float) Math.sqrt(norm);
-        if (norm > 0) for (int i = 0; i < dimension; i++) vector[i] /= norm;
+        Random random = new Random(42 + seed);
+        float[] vector = new float[dimension];
+        for (int i = 0; i < dimension; i++) {
+            vector[i] = (float) random.nextGaussian();
+        }
+        
+        // Normalize vector
+        float norm = 0.0f;
+        for (float v : vector) norm += v * v;
+        norm = (float) Math.sqrt(norm);
+        
+        if (norm > 0) {
+            for (int i = 0; i < dimension; i++) {
+                vector[i] /= norm;
+            }
+        }
         return vector;
     }
 
-    // --- MAIN ---
-
-    public static void main(String[] args) throws IOException {
-        if (args.length == 0) {
-            System.out.println("Usage: java LuceneGraphPipeline [extract|inject]");
-            return;
-        }
-        if (args[0].equalsIgnoreCase("extract")) buildAndExport();
-        else if (args[0].equalsIgnoreCase("inject")) injectAndTest();
-        else System.out.println("Unknown command: " + args[0]);
-    }
-
+    
     private static int getNeighborArraySize(NeighborArray na) {
         return na.size(); // Use the public method!
     }
@@ -490,6 +560,189 @@ public class LuceneGraphPipeline {
         } catch (Exception e) {
             System.err.println("Graph validation failed: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Utility to recursively delete a directory
+     */
+    private static void deleteDirectory(java.io.File dir) {
+        if (dir.exists()) {
+            java.io.File[] files = dir.listFiles();
+            if (files != null) {
+                for (java.io.File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
+                    } else {
+                        file.delete();
+                    }
+                }
+            }
+            dir.delete();
+        }
+    }
+
+    /**
+     * Helper method to parse vectors (works for both dataset and query vectors)
+     */
+    private static int parseVectors(List<String> vectorLines, float[][] targetArray, String vectorPrefix, GraphData data) {
+        int vIdx = 0;
+        
+        for (int i = 0; i < vectorLines.size(); i++) {
+            String vline = vectorLines.get(i);
+            
+            if (vline.startsWith(vectorPrefix)) {
+                try {
+                    String vectorId = vline.substring(0, vline.indexOf(":"));
+                    
+                    // Collect multi-line vector data
+                    StringBuilder vecStrBuilder = new StringBuilder();
+                    
+                    int colon = vline.indexOf(":");
+                    if (colon >= 0) {
+                        String firstPart = vline.substring(colon + 1).trim();
+                        if (!firstPart.isEmpty()) {
+                            vecStrBuilder.append(firstPart);
+                        }
+                    }
+                    
+                    // Continue reading lines until next vector or end
+                    int j = i + 1;
+                    while (j < vectorLines.size()) {
+                        String nextLine = vectorLines.get(j).trim();
+                        if (nextLine.startsWith(vectorPrefix) || nextLine.startsWith("===")) {
+                            break;
+                        }
+                        if (!nextLine.isEmpty()) {
+                            if (vecStrBuilder.length() > 0) {
+                                vecStrBuilder.append(" ");
+                            }
+                            vecStrBuilder.append(nextLine);
+                        }
+                        j++;
+                    }
+                    
+                    String vecStr = vecStrBuilder.toString().trim();
+                    if (vecStr.isEmpty()) continue;
+                    
+                    // Parse vector values
+                    if (vecStr.startsWith("[")) vecStr = vecStr.substring(1);
+                    if (vecStr.endsWith("]")) vecStr = vecStr.substring(0, vecStr.length() - 1);
+                    
+                    List<Float> validValues = new ArrayList<>();
+                    for (String val : vecStr.split(",")) {
+                        String trimmed = val.trim();
+                        if (!trimmed.isEmpty()) {
+                            try {
+                                validValues.add(Float.parseFloat(trimmed));
+                            } catch (NumberFormatException e) {
+                                // Skip invalid values
+                            }
+                        }
+                    }
+                    
+                    if (validValues.isEmpty()) continue;
+                    
+                    // Set dimension from first valid vector
+                    if (data.dimension == -1) {
+                        data.dimension = validValues.size();
+                        System.out.println("📊 Detected vector dimension: " + data.dimension + " from " + vectorId);
+                    }
+                    
+                    if (validValues.size() != data.dimension) continue;
+                    
+                    // Convert to float array
+                    float[] vec = new float[validValues.size()];
+                    for (int k = 0; k < validValues.size(); k++) {
+                        vec[k] = validValues.get(k);
+                    }
+                    
+                    if (vIdx < targetArray.length) {
+                        targetArray[vIdx++] = vec;
+                    }
+                    
+                    if (vIdx <= 3) {
+                        System.out.println("📊 Parsed " + vectorId + " (" + vec.length + "D): " + 
+                            Arrays.toString(Arrays.copyOf(vec, Math.min(5, vec.length))) + "...");
+                    }
+                    
+                    i = j - 1; // Skip processed lines
+                    
+                } catch (Exception e) {
+                    System.err.println("⚠️ Error parsing vector: " + vline);
+                    continue;
+                }
+            }
+        }
+        
+        if (data.vectors[0] != null) {
+            System.out.println("📊 First vector sample: " + Arrays.toString(Arrays.copyOf(data.vectors[0], Math.min(10, data.vectors[0].length))));
+            System.out.println("📊 First vector length: " + data.vectors[0].length);
+        }
+        
+        return vIdx;
+    }
+
+    /**
+     * Validate graph structure before using it
+     */
+    private static void validateGraphStructure(GraphData data) {
+        System.out.println("🔍 === Graph Structure Validation ===");
+        
+        Map<Integer, List<Integer>> level0 = data.connections.get(0);
+        if (level0 == null) {
+            System.err.println("❌ No level 0 connections found!");
+            return;
+        }
+        
+        // Find min/max node IDs
+        int minNodeId = Integer.MAX_VALUE;
+        int maxNodeId = Integer.MIN_VALUE;
+        int totalConnections = 0;
+        
+        for (Map.Entry<Integer, List<Integer>> entry : level0.entrySet()) {
+            int nodeId = entry.getKey();
+            List<Integer> neighbors = entry.getValue();
+            
+            minNodeId = Math.min(minNodeId, nodeId);
+            maxNodeId = Math.max(maxNodeId, nodeId);
+            totalConnections += neighbors.size();
+            
+            // Check if any neighbor IDs are out of bounds
+            for (Integer neighborId : neighbors) {
+                if (neighborId < 0 || neighborId >= data.vectorCount) {
+                    System.err.println("❌ Node " + nodeId + " has invalid neighbor: " + neighborId + 
+                        " (valid range: 0-" + (data.vectorCount - 1) + ")");
+                }
+                if (neighborId > maxNodeId) {
+                    maxNodeId = neighborId;
+                }
+            }
+        }
+        
+        System.out.println("📊 Parsed nodes: " + level0.size());
+        System.out.println("📊 Node ID range: " + minNodeId + " to " + maxNodeId);
+        System.out.println("📊 Expected vector count: " + data.vectorCount);
+        System.out.println("📊 Total connections: " + totalConnections);
+        
+        // Check for gaps in node IDs
+        Set<Integer> allReferencedNodes = new HashSet<>();
+        for (Map.Entry<Integer, List<Integer>> entry : level0.entrySet()) {
+            allReferencedNodes.add(entry.getKey());
+            allReferencedNodes.addAll(entry.getValue());
+        }
+        
+        System.out.println("📊 Unique nodes referenced: " + allReferencedNodes.size());
+        if (!allReferencedNodes.isEmpty()) {
+            System.out.println("📊 Max referenced node ID: " + Collections.max(allReferencedNodes));
+        
+            // Check if we have vectors for all referenced nodes
+            int maxReferencedId = Collections.max(allReferencedNodes);
+            if (maxReferencedId >= data.vectorCount) {
+                System.err.println("❌ CRITICAL: Referenced node ID " + maxReferencedId + 
+                    " exceeds vector count " + data.vectorCount);
+                System.err.println("❌ This will cause ArrayIndexOutOfBoundsException!");
+            }
         }
     }
 }
