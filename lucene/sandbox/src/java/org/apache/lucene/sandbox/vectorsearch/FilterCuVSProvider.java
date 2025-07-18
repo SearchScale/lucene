@@ -20,8 +20,11 @@ import com.nvidia.cuvs.BruteForceIndex;
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.Dataset;
+import com.nvidia.cuvs.Dataset.Builder;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.spi.CuVSProvider;
+
+import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
 /*package-private*/ class FilterCuVSProvider implements CuVSProvider {
@@ -64,9 +67,19 @@ import java.nio.file.Path;
   public CagraIndex mergeCagraIndexes(CagraIndex[] arg0) throws Throwable {
     return delegate.mergeCagraIndexes(arg0);
   }
+  
+  @Override
+  public Dataset newArrayDataset(float[][] arg0) {
+    return delegate.newArrayDataset(arg0);
+  }
+  
+  @Override
+  public MethodHandle newNativeDatasetBuilder() {
+    return delegate.newNativeDatasetBuilder();
+  }
 
   @Override
-  public Dataset newDataset(int arg0, int arg1) throws UnsupportedOperationException {
-    return delegate.newDataset(arg0, arg1);
+  public Builder newDatasetBuilder(int arg0, int arg1) {
+    return delegate.newDatasetBuilder(arg0, arg1);
   }
 }

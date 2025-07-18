@@ -281,9 +281,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   private void writeField(CuVSFieldWriter fieldData) throws IOException {
     // TODO: Argh! https://github.com/rapidsai/cuvs/issues/698
     List<float[]> vectors = fieldData.getVectors();
-    Dataset dataset = Dataset.create(vectors.size(), fieldData.fieldInfo().getVectorDimension());
+    Dataset.Builder dataset = Dataset.builder(vectors.size(), fieldData.fieldInfo().getVectorDimension());
     for (float[] vec: vectors) dataset.addVector(vec); 
-    writeFieldInternal(fieldData.fieldInfo(), dataset);
+    writeFieldInternal(fieldData.fieldInfo(), dataset.build());
   }
 
   private void writeSortingField(CuVSFieldWriter fieldData, Sorter.DocMap sortMap)
@@ -294,12 +294,12 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     mapOldOrdToNewOrd(oldDocsWithFieldSet, sortMap, null, new2OldOrd, null);
 
     float[][] oldVectors = fieldData.getVectors().toArray(float[][]::new);
-    Dataset dataset = Dataset.create(fieldData.getVectors().size(), fieldData.fieldInfo().getVectorDimension());
+    Dataset.Builder dataset = Dataset.builder(fieldData.getVectors().size(), fieldData.fieldInfo().getVectorDimension());
     for (int i = 0; i < oldVectors.length; i++) {
       float[] vec = oldVectors[new2OldOrd[i]];
       dataset.addVector(vec);
     }
-    writeFieldInternal(fieldData.fieldInfo(), dataset);
+    writeFieldInternal(fieldData.fieldInfo(), dataset.build());
   }
 
   private void writeFieldInternal(FieldInfo fieldInfo, Dataset dataset) throws IOException {
@@ -427,7 +427,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
   }
 
   /** Copies the vector values into dst. Returns the actual number of vectors copied. */
-  private static int getVectorData(FloatVectorValues floatVectorValues, Dataset dataset)
+  private static int getVectorData(FloatVectorValues floatVectorValues, Dataset.Builder dataset)
       throws IOException {
     DocsWithFieldSet docsWithField = new DocsWithFieldSet();
     int count = 0;
@@ -454,9 +454,9 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
           };
 
       // Also will be replaced with the cuVS merge api
-      Dataset dataset = Dataset.create(mergedVectorValues.size(), mergedVectorValues.dimension());
+      Dataset.Builder dataset = Dataset.builder(mergedVectorValues.size(), mergedVectorValues.dimension());
       getVectorData(mergedVectorValues, dataset); // nocommit handle the case when returned value is less than dataset.size() 
-      writeFieldInternal(fieldInfo, dataset);
+      writeFieldInternal(fieldInfo, dataset.build());
     } catch (Throwable t) {
       handleThrowable(t);
     }

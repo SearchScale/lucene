@@ -363,7 +363,6 @@ public class CuVSVectorsReader extends KnnVectorsReader {
               .withTopK(topK)
               .withSearchParams(searchParams)
               // we don't use ord to doc mapping, https://github.com/rapidsai/cuvs/issues/699
-              .withMapping(null)
               .withQueryVectors(new float[][] {target})
               .build();
 
