@@ -89,7 +89,7 @@ public class TestCuVS extends LuceneTestCase {
       doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
       doc.add(newTextField("field", English.intToEnglish(i), Field.Store.YES));
       boolean skipVector =
-          random.nextInt(10) < 0; // disable testing with holes for now, there's some bug.
+          random.nextInt(10) < 4; // disable testing with holes for now, there's some bug.
       if (!skipVector
           || datasetSize < 100) { // about 10th of the documents shouldn't have a single vector
         doc.add(new KnnFloatVectorField("vector", dataset[i], VectorSimilarityFunction.EUCLIDEAN));
@@ -137,6 +137,7 @@ public class TestCuVS extends LuceneTestCase {
     ScoreDoc[] hits = searcher.search(query, topK).scoreDocs;
     log.info("RESULTS: " + Arrays.toString(hits));
     log.info("EXPECTD: " + expected.get(0));
+    System.out.println("Expected RESULTS: " + expected.get(0));
 
     for (ScoreDoc hit : hits) {
       log.info("\t" + reader.storedFields().document(hit.doc).get("id") + ": " + hit.score);
