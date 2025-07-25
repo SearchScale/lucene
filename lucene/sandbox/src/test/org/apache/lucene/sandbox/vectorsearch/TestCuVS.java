@@ -20,8 +20,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -30,6 +32,7 @@ import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
@@ -57,12 +60,13 @@ public class TestCuVS extends LuceneTestCase {
   static IndexReader reader;
   static Directory directory;
 
-  static int DATASET_SIZE_LIMIT = 1000;
+  static int DATASET_SIZE_LIMIT = 5000;
   static int DIMENSIONS_LIMIT = 2048;
   static int NUM_QUERIES_LIMIT = 10;
   static int TOP_K_LIMIT = 64; // TODO This fails beyond 64
 
   public static float[][] dataset;
+  public static Set<Integer> deletedDocIds;
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -84,6 +88,7 @@ public class TestCuVS extends LuceneTestCase {
     int datasetSize = random.nextInt(DATASET_SIZE_LIMIT) + 1;
     int dimensions = random.nextInt(DIMENSIONS_LIMIT) + 1;
     dataset = generateDataset(random, datasetSize, dimensions);
+    deletedDocIds = new HashSet<>();
     for (int i = 0; i < datasetSize; i++) {
       Document doc = new Document();
       doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
@@ -98,6 +103,38 @@ public class TestCuVS extends LuceneTestCase {
 
       writer.addDocument(doc);
     }
+
+    // Delete documents in multiple phases to thoroughly test acceptDocs
+    log.info("Deleting documents in multiple phases to test acceptDocs...");
+    
+    // Phase 1: Delete every 5th document (20% of documents)
+    log.info("Phase 1: Deleting every 5th document...");
+    for (int i = 0; i < datasetSize; i += 5) {
+      writer.deleteDocuments(new org.apache.lucene.index.Term("id", String.valueOf(i)));
+      deletedDocIds.add(i);
+      log.info("Deleted document with id: " + i);
+    }
+    writer.commit();
+    
+    // Phase 2: Delete every 7th document (additional ~14% of remaining documents)
+    log.info("Phase 2: Deleting every 7th document...");
+    for (int i = 1; i < datasetSize; i += 7) {
+      writer.deleteDocuments(new org.apache.lucene.index.Term("id", String.valueOf(i)));
+      deletedDocIds.add(i);
+      log.info("Deleted document with id: " + i);
+    }
+    writer.commit();
+    
+    // Phase 3: Delete every 11th document (additional ~9% of remaining documents)
+    log.info("Phase 3: Deleting every 11th document...");
+    for (int i = 2; i < datasetSize; i += 11) {
+      writer.deleteDocuments(new org.apache.lucene.index.Term("id", String.valueOf(i)));
+      deletedDocIds.add(i);
+      log.info("Deleted document with id: " + i);
+    }
+    writer.commit();
+    
+    log.info("Total deleted documents: " + deletedDocIds.size() + " out of " + datasetSize);
 
     reader = writer.getReader();
     searcher = newSearcher(reader);
@@ -143,10 +180,14 @@ public class TestCuVS extends LuceneTestCase {
       log.info("\t" + reader.storedFields().document(hit.doc).get("id") + ": " + hit.score);
     }
 
+    // Verify no deleted documents appear in results and all results are valid
     for (ScoreDoc hit : hits) {
       int doc = Integer.parseInt(reader.storedFields().document(hit.doc).get("id"));
+      assertFalse("Deleted document " + doc + " should not appear in search results", deletedDocIds.contains(doc));
       assertTrue("Result returned was not in topk*2: " + doc, expected.get(0).contains(doc));
     }
+    
+    log.info("✓ Verified no deleted documents in search results");
   }
 
   private static float[][] generateQueries(Random random, int dimensions, int numQueries) {
@@ -179,6 +220,10 @@ public class TestCuVS extends LuceneTestCase {
     for (float[] query : queries) {
       Map<Integer, Double> distances = new TreeMap<>();
       for (int j = 0; j < dataset.length; j++) {
+        // Skip deleted documents when computing expected results
+        if (deletedDocIds.contains(j)) {
+          continue;
+        }
         double distance = 0;
         for (int k = 0; k < dimensions; k++) {
           distance += (query[k] - dataset[j][k]) * (query[k] - dataset[j][k]);

@@ -231,7 +231,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
     var index =
         CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(params).build();
     long elapsedMillis = nanosToMillis(System.nanoTime() - startTime);
-    info("Cagra index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
+    System.out.println("Cagra index created in " + elapsedMillis + "ms, with " + dataset.size() + " vectors");
     Path tmpFile = Files.createTempFile(resources.tempDirectory(), "tmpindex", "cag");
     index.serialize(os, tmpFile);
     index.destroyIndex();
@@ -268,6 +268,7 @@ public class CuVSVectorsWriter extends KnnVectorsWriter {
 
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
+    System.out.println("Writing a segment with maxDoc="+maxDoc);
     flatVectorsWriter.flush(maxDoc, sortMap);
     for (var field : fields) {
       if (sortMap == null) {

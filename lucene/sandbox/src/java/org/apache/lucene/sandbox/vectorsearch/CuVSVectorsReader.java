@@ -32,6 +32,8 @@ import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.HnswIndexParams;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +49,7 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.index.KnnVectorValues.DocIndexIterator;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -310,13 +313,22 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     float apply(float v);
   }
 
-  static long[] bitsToLongArray(Bits bits) {
-    if (bits instanceof FixedBitSet fixedBitSet) {
-      return fixedBitSet.getBits();
-    } else {
-      return FixedBitSet.copyOf(bits).getBits();
+  /** Convert Lucene Bits to java.util.BitSet for CAGRA prefilter */
+  static BitSet bitsToBitSet(Bits bits) {
+    if (bits == null) {
+      return null;
     }
+    
+    int length = bits.length();
+    BitSet bitSet = new BitSet(length);
+    for (int i = 0; i < length; i++) {
+      if (bits.get(i)) {
+        bitSet.set(i);
+      }
+    }
+    return bitSet;
   }
+
 
   static FloatToFloatFunction getScoreNormalizationFunc(VectorSimilarityFunction sim) {
     // TODO: check for different similarities
@@ -329,6 +341,8 @@ public class CuVSVectorsReader extends KnnVectorsReader {
   @Override
   public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
+    System.out.println("acceptDocs="+acceptDocs);
+    System.out.println("field="+field+", query="+Arrays.toString(target));
     var fieldEntry = getFieldEntry(field, VectorEncoding.FLOAT32);
     if (fieldEntry.count() == 0 || knnCollector.k() == 0) {
       return;
@@ -342,11 +356,24 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       throw new IllegalStateException("not index found for field:" + field);
     }
 
-    int collectorTopK = knnCollector.k();
-    if (acceptDocs != null) {
-      collectorTopK = knnCollector.k() * FILTER_OVER_SAMPLE;
+    // Get the accepted ordinals bitset for filtering
+    final var rawValues = flatVectorsReader.getFloatVectorValues(field);
+    final Bits acceptedOrds = rawValues.getAcceptOrds(acceptDocs);
+    
+    // If we have filters, count valid documents for better topK estimation
+    int validDocsCount = fieldEntry.count();
+    if (acceptedOrds != null) {
+      validDocsCount = 0;
+      for (int i = 0; i < fieldEntry.count(); i++) {
+        if (acceptedOrds.get(i)) {
+          validDocsCount++;
+        }
+      }
+      System.out.println("Filter active: " + validDocsCount + " valid docs out of " + fieldEntry.count());
     }
-    final int topK = Math.min(collectorTopK, fieldEntry.count());
+
+    // When using CAGRA prefilter, we don't need oversampling since CAGRA filters internally
+    final int topK = Math.min(knnCollector.k(), fieldEntry.count());
     assert topK > 0 : "Expected topK > 0, got:" + topK;
 
     Map<Integer, Float> result;
@@ -358,13 +385,21 @@ public class CuVSVectorsReader extends KnnVectorsReader {
               .withSearchWidth(1)
               .build();
 
-      var query =
+      var queryBuilder =
           new CagraQuery.Builder()
               .withTopK(topK)
               .withSearchParams(searchParams)
               // we don't use ord to doc mapping, https://github.com/rapidsai/cuvs/issues/699
-              .withQueryVectors(new float[][] {target})
-              .build();
+              .withQueryVectors(new float[][] {target});
+      
+      // Add prefilter if we have deleted documents
+      if (acceptedOrds != null) {
+        BitSet prefilterBitSet = bitsToBitSet(acceptedOrds);
+        queryBuilder.withPrefilter(prefilterBitSet, fieldEntry.count());
+        System.out.println("Using CAGRA native prefilter with " + validDocsCount + " valid docs out of " + fieldEntry.count());
+      }
+      
+      var query = queryBuilder.build();
 
       CagraIndex cagraIndex = cuvsIndex.getCagraIndex();
       List<Map<Integer, Float>> searchResult = null;
@@ -375,6 +410,12 @@ public class CuVSVectorsReader extends KnnVectorsReader {
       }
       // List expected to have only one entry because of single query "target".
       assert searchResult.size() == 1;
+      
+      FloatVectorValues fv = flatVectorsReader.getFloatVectorValues(field);
+      DocIndexIterator it = fv.iterator();
+      //while(it.)
+      
+      System.out.println("RESULTS from CAGRA: " + searchResult);
       result = searchResult.getFirst();
     } else {
       BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
@@ -395,24 +436,21 @@ public class CuVSVectorsReader extends KnnVectorsReader {
     }
     assert result != null;
 
-    final var rawValues = flatVectorsReader.getFloatVectorValues(field);
-    final Bits acceptedOrds = rawValues.getAcceptOrds(acceptDocs);
+    // With CAGRA prefilter, we don't need post-filtering - CAGRA returns only valid results
     final var ordToDocFunction = (IntToIntFunction) rawValues::ordToDoc;
     final var scoreCorrectionFunction = getScoreNormalizationFunc(fieldEntry.similarityFunction);
 
     for (var entry : result.entrySet()) {
       int ord = entry.getKey();
       float score = entry.getValue();
-      if (acceptedOrds == null || acceptedOrds.get(ord)) {
-        if (knnCollector.earlyTerminated()) {
-          break;
-        }
-        assert ord >= 0 : "unexpected ord: " + ord;
-        int doc = ordToDocFunction.apply(ord);
-        float correctedScore = scoreCorrectionFunction.apply(score);
-        knnCollector.incVisitedCount(1);
-        knnCollector.collect(doc, correctedScore);
+      if (knnCollector.earlyTerminated()) {
+        break;
       }
+      assert ord >= 0 : "unexpected ord: " + ord;
+      int doc = ordToDocFunction.apply(ord);
+      float correctedScore = scoreCorrectionFunction.apply(score);
+      knnCollector.incVisitedCount(1);
+      knnCollector.collect(doc, correctedScore);
     }
   }
 

@@ -27,12 +27,17 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.BooleanClause.Occur;
+import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.analysis.MockAnalyzer;
 import org.apache.lucene.tests.analysis.MockTokenizer;
@@ -40,6 +45,7 @@ import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.QueryBuilder;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -54,7 +60,7 @@ public class TestCuVSAlternating extends LuceneTestCase {
   static List<float[]> vectors;
   static List<Integer> docIdsWithVectors;
 
-  static final int NUM_DOCS = 20;
+  static final int NUM_DOCS = 100;
   static final int DIMENSIONS = 128;
   static final int TOP_K = 10;
 
@@ -79,7 +85,7 @@ public class TestCuVSAlternating extends LuceneTestCase {
     for (int i = 0; i < NUM_DOCS; i++) {
       Document doc = new Document();
       doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
-      
+      doc.add(new TextField("quality", random.nextBoolean()? "good": "bad", Field.Store.YES));
       if (i % 2 == 0) {
         float[] vector = new float[DIMENSIONS];
         for (int j = 0; j < DIMENSIONS; j++) {
@@ -115,8 +121,11 @@ public class TestCuVSAlternating extends LuceneTestCase {
       queryVector[i] = random.nextFloat() * 100;
     }
 
-    Query query = new KnnFloatVectorQuery("vector", queryVector, TOP_K);
-    ScoreDoc[] hits = searcher.search(query, TOP_K).scoreDocs;
+    Query regularQuery = new TermQuery(new Term("quality", "bad"));
+    Query vectorQuery = new KnnFloatVectorQuery("vector", queryVector, 10);
+    Query booleanQuery = new BooleanQuery.Builder().add(regularQuery, Occur.FILTER).add(vectorQuery, Occur.MUST).build();
+    
+    ScoreDoc[] hits = searcher.search(booleanQuery,100).scoreDocs;
 
     for (int i=0; i<hits.length; i++) {
       System.out.println("Doc: " + hits[i].doc);
